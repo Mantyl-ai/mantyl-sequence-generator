@@ -73,9 +73,9 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
               <th>Name</th>
               <th>Title</th>
               <th>Company</th>
-              <th>Email</th>
+              <th>Work Email</th>
               <th style={{ width: 28, textAlign: 'center' }} title="Email validation status from Apollo">✓</th>
-              <th>Phone</th>
+              <th>Work Phone</th>
               <th>LinkedIn</th>
             </tr>
           </thead>
@@ -102,7 +102,7 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                       {p.email}
                     </a>
                   ) : (
-                    <span className="data-empty">No email</span>
+                    <span className="data-empty">—</span>
                   )}
                 </td>
                 <td style={{ textAlign: 'center' }}>
@@ -132,7 +132,7 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                       <span className="phone-spinner" />Searching...
                     </span>
                   ) : (
-                    <span className="data-empty">No phone</span>
+                    <span className="data-empty">—</span>
                   )}
                 </td>
                 <td>
@@ -147,7 +147,7 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                       <IconLinkedIn /> Profile
                     </a>
                   ) : (
-                    <span className="data-empty">No profile</span>
+                    <span className="data-empty">—</span>
                   )}
                 </td>
               </tr>
