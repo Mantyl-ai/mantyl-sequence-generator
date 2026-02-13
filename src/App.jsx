@@ -208,7 +208,12 @@ export default function App() {
             <span className="error-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
             <div>
               <p><strong>Something went wrong:</strong> {error}</p>
-              {step === 'form' && (
+              {step === 'form' && error.toLowerCase().includes('no prospects found') && (
+                <p style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
+                  Try broadening your search — use a wider company size range, fewer job titles, or a larger geography.
+                </p>
+              )}
+              {step === 'form' && (error.toLowerCase().includes('api key') || error.toLowerCase().includes('api error') || error.toLowerCase().includes('failed to')) && !error.toLowerCase().includes('no prospects found') && (
                 <p style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
                   Check that your API keys are configured in Netlify environment variables.
                 </p>
