@@ -2,174 +2,68 @@ import { useState } from 'react'
 
 const INDUSTRY_GROUPS = {
   'Software & Technology': [
-    'SaaS / Cloud Software',
-    'IT Services & Consulting',
-    'Cybersecurity',
-    'Data & Analytics',
-    'AI / Machine Learning',
-    'DevOps / Infrastructure',
-    'Internet / Web Services',
-    'Mobile Apps',
-    'Computer Hardware',
-    'Semiconductors',
-    'Computer Networking',
-    'Computer Games / Gaming',
-    'Blockchain / Cryptocurrency',
-    'IoT / Connected Devices',
-    'Cloud Infrastructure',
-    'E-commerce Platforms',
+    'SaaS / Cloud Software', 'IT Services & Consulting', 'Cybersecurity', 'Data & Analytics',
+    'AI / Machine Learning', 'DevOps / Infrastructure', 'Internet / Web Services', 'Mobile Apps',
+    'Computer Hardware', 'Semiconductors', 'Computer Networking', 'Computer Games / Gaming',
+    'Blockchain / Cryptocurrency', 'IoT / Connected Devices', 'Cloud Infrastructure', 'E-commerce Platforms',
   ],
   'Industry Verticals (Tech)': [
-    'Fintech',
-    'Healthtech / Medtech',
-    'Edtech',
-    'Martech / Adtech',
-    'HR Tech',
-    'Legal Tech',
-    'Proptech / Real Estate Tech',
-    'Cleantech / Climate Tech',
-    'Agritech / FoodTech',
-    'Insurtech',
-    'Govtech',
-    'Construction Tech',
-    'Logistics Tech',
-    'RegTech / Compliance Tech',
-    'Biotech',
+    'Fintech', 'Healthtech / Medtech', 'Edtech', 'Martech / Adtech', 'HR Tech', 'Legal Tech',
+    'Proptech / Real Estate Tech', 'Cleantech / Climate Tech', 'Agritech / FoodTech', 'Insurtech',
+    'Govtech', 'Construction Tech', 'Logistics Tech', 'RegTech / Compliance Tech', 'Biotech',
   ],
   'Financial Services': [
-    'Banking',
-    'Investment Banking',
-    'Venture Capital & Private Equity',
-    'Insurance',
-    'Accounting',
-    'Financial Planning & Advisory',
-    'Capital Markets',
-    'Lending & Mortgages',
-    'Payment Processing',
-    'Wealth Management',
+    'Banking', 'Investment Banking', 'Venture Capital & Private Equity', 'Insurance', 'Accounting',
+    'Financial Planning & Advisory', 'Capital Markets', 'Lending & Mortgages', 'Payment Processing', 'Wealth Management',
   ],
   'Healthcare & Life Sciences': [
-    'Hospitals & Health Systems',
-    'Pharmaceuticals',
-    'Medical Devices',
-    'Biotechnology',
-    'Mental Health & Wellness',
-    'Dental',
-    'Veterinary',
-    'Clinical Research / CRO',
-    'Health Insurance / Payers',
-    'Home Health & Elder Care',
-    'Telehealth',
+    'Hospitals & Health Systems', 'Pharmaceuticals', 'Medical Devices', 'Biotechnology',
+    'Mental Health & Wellness', 'Dental', 'Veterinary', 'Clinical Research / CRO',
+    'Health Insurance / Payers', 'Home Health & Elder Care', 'Telehealth',
   ],
   'Manufacturing & Industrial': [
-    'Manufacturing',
-    'Industrial Automation',
-    'Chemicals',
-    'Plastics & Rubber',
-    'Metals & Mining',
-    'Paper & Packaging',
-    'Textiles & Apparel Manufacturing',
-    'Electronics Manufacturing',
-    'Machinery & Equipment',
-    'Building Materials',
+    'Manufacturing', 'Industrial Automation', 'Chemicals', 'Plastics & Rubber', 'Metals & Mining',
+    'Paper & Packaging', 'Textiles & Apparel Manufacturing', 'Electronics Manufacturing',
+    'Machinery & Equipment', 'Building Materials',
   ],
   'Consumer & Retail': [
-    'Retail',
-    'E-commerce / DTC',
-    'Consumer Goods / CPG',
-    'Luxury Goods',
-    'Fashion & Apparel',
-    'Food & Beverage',
-    'Cosmetics & Personal Care',
-    'Sporting Goods',
-    'Consumer Electronics',
-    'Home & Garden',
+    'Retail', 'E-commerce / DTC', 'Consumer Goods / CPG', 'Luxury Goods', 'Fashion & Apparel',
+    'Food & Beverage', 'Cosmetics & Personal Care', 'Sporting Goods', 'Consumer Electronics', 'Home & Garden',
   ],
   'Business Services': [
-    'Professional Services',
-    'Management Consulting',
-    'Staffing & Recruiting',
-    'Outsourcing / BPO',
-    'Market Research',
-    'Public Relations / Communications',
-    'Advertising & Creative Services',
-    'Events & Conferences',
-    'Facilities Management',
-    'Security Services',
-    'Printing & Publishing Services',
+    'Professional Services', 'Management Consulting', 'Staffing & Recruiting', 'Outsourcing / BPO',
+    'Market Research', 'Public Relations / Communications', 'Advertising & Creative Services',
+    'Events & Conferences', 'Facilities Management', 'Security Services', 'Printing & Publishing Services',
   ],
   'Media & Communications': [
-    'Media & Entertainment',
-    'Broadcasting (TV, Radio)',
-    'Publishing',
-    'Music',
-    'Film & Video Production',
-    'Telecommunications',
-    'Wireless / Mobile',
-    'Satellite & Cable',
-    'Social Media / Creator Economy',
-    'News & Journalism',
+    'Media & Entertainment', 'Broadcasting (TV, Radio)', 'Publishing', 'Music', 'Film & Video Production',
+    'Telecommunications', 'Wireless / Mobile', 'Satellite & Cable', 'Social Media / Creator Economy', 'News & Journalism',
   ],
   'Transportation & Logistics': [
-    'Logistics & Supply Chain',
-    'Freight & Shipping',
-    'Airlines / Aviation',
-    'Maritime / Shipping',
-    'Trucking & Ground Transport',
-    'Warehousing & Distribution',
-    'Railroad',
-    'Ride Sharing / Mobility',
-    'Courier & Last Mile Delivery',
-    'Automotive',
+    'Logistics & Supply Chain', 'Freight & Shipping', 'Airlines / Aviation', 'Maritime / Shipping',
+    'Trucking & Ground Transport', 'Warehousing & Distribution', 'Railroad', 'Ride Sharing / Mobility',
+    'Courier & Last Mile Delivery', 'Automotive',
   ],
   'Energy & Utilities': [
-    'Oil & Gas',
-    'Renewable Energy / Solar / Wind',
-    'Electric Utilities',
-    'Water & Waste Management',
-    'Nuclear Energy',
-    'Energy Storage / Batteries',
-    'Mining & Natural Resources',
+    'Oil & Gas', 'Renewable Energy / Solar / Wind', 'Electric Utilities', 'Water & Waste Management',
+    'Nuclear Energy', 'Energy Storage / Batteries', 'Mining & Natural Resources',
   ],
   'Real Estate & Construction': [
-    'Commercial Real Estate',
-    'Residential Real Estate',
-    'Property Management',
-    'Construction & Engineering',
-    'Architecture & Design',
-    'Civil Engineering',
-    'Real Estate Investment (REITs)',
+    'Commercial Real Estate', 'Residential Real Estate', 'Property Management',
+    'Construction & Engineering', 'Architecture & Design', 'Civil Engineering', 'Real Estate Investment (REITs)',
   ],
   'Education': [
-    'Higher Education',
-    'K-12 Education',
-    'Corporate Training & L&D',
-    'Online Learning / MOOCs',
-    'Test Prep & Tutoring',
-    'Education Administration',
-    'Libraries',
+    'Higher Education', 'K-12 Education', 'Corporate Training & L&D', 'Online Learning / MOOCs',
+    'Test Prep & Tutoring', 'Education Administration', 'Libraries',
   ],
   'Government & Nonprofit': [
-    'Federal Government',
-    'State & Local Government',
-    'Military & Defense',
-    'Aerospace & Defense Contractors',
-    'Nonprofit / NGO',
-    'International Organizations',
-    'Political Organizations',
-    'Religious Organizations',
+    'Federal Government', 'State & Local Government', 'Military & Defense', 'Aerospace & Defense Contractors',
+    'Nonprofit / NGO', 'International Organizations', 'Political Organizations', 'Religious Organizations',
   ],
   'Other': [
-    'Hospitality & Hotels',
-    'Restaurants & Food Service',
-    'Travel & Tourism',
-    'Sports & Fitness',
-    'Legal Services / Law Firms',
-    'Agriculture & Farming',
-    'Forestry & Fishing',
-    'Cannabis / Hemp',
-    'Funeral Services',
-    'Other',
+    'Hospitality & Hotels', 'Restaurants & Food Service', 'Travel & Tourism', 'Sports & Fitness',
+    'Legal Services / Law Firms', 'Agriculture & Farming', 'Forestry & Fishing', 'Cannabis / Hemp',
+    'Funeral Services', 'Other',
   ],
 }
 
@@ -188,16 +82,74 @@ const EMPLOYEE_SIZES = [
 ]
 
 const COMPANY_SEGMENTS = [
-  { label: 'SMB', sizeValues: ['1-10', '11-20', '21-50', '51-100', '101-200'] },
-  { label: 'Midmarket', sizeValues: ['201-500', '501-1,000'] },
-  { label: 'Enterprise', sizeValues: ['1,001-2,000', '2,001-5,000', '5,001-10,000', '10,001+'] },
+  { label: 'SMB', desc: '1–200 employees' },
+  { label: 'Midmarket', desc: '201–1,000 employees' },
+  { label: 'Enterprise', desc: '1,001+ employees' },
 ]
 
+const GEOGRAPHY_GROUPS = {
+  'Global': [
+    { label: 'Global (All Regions)', value: 'Global' },
+  ],
+  'Americas': [
+    { label: 'Americas (All)', value: 'Americas' },
+    { label: 'United States', value: 'United States' },
+    { label: 'United States — Northeast', value: 'United States, Northeast' },
+    { label: 'United States — Southeast', value: 'United States, Southeast' },
+    { label: 'United States — Midwest', value: 'United States, Midwest' },
+    { label: 'United States — West Coast', value: 'United States, West' },
+    { label: 'United States — Southwest', value: 'United States, Southwest' },
+    { label: 'Canada', value: 'Canada' },
+    { label: 'Mexico', value: 'Mexico' },
+    { label: 'Brazil', value: 'Brazil' },
+    { label: 'Argentina', value: 'Argentina' },
+    { label: 'Colombia', value: 'Colombia' },
+    { label: 'Chile', value: 'Chile' },
+    { label: 'Latin America (Other)', value: 'Latin America' },
+  ],
+  'Europe, Middle East & Africa': [
+    { label: 'EMEA (All)', value: 'EMEA' },
+    { label: 'United Kingdom', value: 'United Kingdom' },
+    { label: 'Germany', value: 'Germany' },
+    { label: 'France', value: 'France' },
+    { label: 'Netherlands', value: 'Netherlands' },
+    { label: 'Spain', value: 'Spain' },
+    { label: 'Italy', value: 'Italy' },
+    { label: 'Switzerland', value: 'Switzerland' },
+    { label: 'Nordics (Sweden, Norway, Denmark, Finland)', value: 'Nordics' },
+    { label: 'Eastern Europe', value: 'Eastern Europe' },
+    { label: 'Israel', value: 'Israel' },
+    { label: 'United Arab Emirates', value: 'United Arab Emirates' },
+    { label: 'Saudi Arabia', value: 'Saudi Arabia' },
+    { label: 'South Africa', value: 'South Africa' },
+    { label: 'Nigeria', value: 'Nigeria' },
+    { label: 'Middle East (Other)', value: 'Middle East' },
+    { label: 'Africa (Other)', value: 'Africa' },
+  ],
+  'Asia Pacific': [
+    { label: 'APAC (All)', value: 'APAC' },
+    { label: 'Australia', value: 'Australia' },
+    { label: 'New Zealand', value: 'New Zealand' },
+    { label: 'India', value: 'India' },
+    { label: 'Japan', value: 'Japan' },
+    { label: 'South Korea', value: 'South Korea' },
+    { label: 'China', value: 'China' },
+    { label: 'Singapore', value: 'Singapore' },
+    { label: 'Hong Kong', value: 'Hong Kong' },
+    { label: 'Southeast Asia', value: 'Southeast Asia' },
+    { label: 'Taiwan', value: 'Taiwan' },
+    { label: 'Philippines', value: 'Philippines' },
+    { label: 'Indonesia', value: 'Indonesia' },
+  ],
+}
+
 const TONES = [
-  { id: 'professional', label: 'Professional', desc: 'Polished, formal, executive ready' },
-  { id: 'casual', label: 'Casual', desc: 'Friendly, conversational, approachable' },
-  { id: 'simple', label: 'Simple', desc: 'Short, direct, no fluff' },
+  { id: 'professional', label: 'Professional', desc: 'Polished, formal, executive ready', icon: '🎯' },
+  { id: 'casual', label: 'Casual', desc: 'Friendly, conversational, approachable', icon: '💬' },
+  { id: 'simple', label: 'Simple', desc: 'Short, direct, no fluff', icon: '⚡' },
 ]
+
+const RequiredAsterisk = () => <span className="required-asterisk">*</span>
 
 export default function ICPForm({ onSubmit, isLoading }) {
   const [form, setForm] = useState({
@@ -212,14 +164,12 @@ export default function ICPForm({ onSubmit, isLoading }) {
     touchpointCount: 6,
     daySpacing: 3,
     channels: ['email'],
-    emailSendType: 'manual', // 'manual' or 'automated'
+    emailSendType: 'manual',
     tone: 'professional',
-    // Product & messaging fields
     productDescription: '',
     painPoint: '',
     proposedSolution: '',
     openToLearnMore: '',
-    // Sender profile
     senderName: '',
     senderTitle: '',
     senderCompany: '',
@@ -232,8 +182,12 @@ export default function ICPForm({ onSubmit, isLoading }) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
-  const updateSegment = (segment) => {
-    setForm(prev => ({ ...prev, companySegment: segment, companySize: '' }))
+  // Segment and size are INDEPENDENT — selecting a segment is optional context, not a filter
+  const toggleSegment = (segment) => {
+    setForm(prev => ({
+      ...prev,
+      companySegment: prev.companySegment === segment ? '' : segment,
+    }))
   }
 
   const toggleChannel = (channel) => {
@@ -251,11 +205,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
     onSubmit(form)
   }
 
-  const availableSizes = form.companySegment
-    ? EMPLOYEE_SIZES.filter(s => COMPANY_SEGMENTS.find(seg => seg.label === form.companySegment)?.sizeValues.includes(s.value))
-    : EMPLOYEE_SIZES
-
-  const isFormValid = form.industry && form.companySegment && form.companySize && form.geography && form.jobTitles.trim() && form.senderName.trim() && form.senderTitle.trim() && form.senderCompany.trim() && form.productDescription.trim()
+  const isFormValid = form.industry && form.companySize && form.geography && form.jobTitles.trim() && form.senderName.trim() && form.senderTitle.trim() && form.senderCompany.trim() && form.productDescription.trim()
 
   return (
     <form onSubmit={handleSubmit}>
@@ -264,19 +214,19 @@ export default function ICPForm({ onSubmit, isLoading }) {
         <h3 className="form-section-title">
           <span className="icon" style={{ background: 'rgba(232,158,108,0.1)', color: '#E89E6C' }}>👤</span>
           Your Profile
-          <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8', marginLeft: 4 }}>— this info signs off your outbound copy</span>
+          <span className="section-subtitle">— this info signs off your outbound copy</span>
         </h3>
         <div className="form-grid">
           <div className="form-group">
-            <label>Your Name *</label>
+            <label>Your Name <RequiredAsterisk /></label>
             <input type="text" value={form.senderName} onChange={e => update('senderName', e.target.value)} placeholder="e.g. Sarah Chen" required />
           </div>
           <div className="form-group">
-            <label>Your Title *</label>
+            <label>Your Title <RequiredAsterisk /></label>
             <input type="text" value={form.senderTitle} onChange={e => update('senderTitle', e.target.value)} placeholder="e.g. Account Executive" required />
           </div>
           <div className="form-group">
-            <label>Your Company *</label>
+            <label>Your Company <RequiredAsterisk /></label>
             <input type="text" value={form.senderCompany} onChange={e => update('senderCompany', e.target.value)} placeholder="e.g. mantyl.ai" required />
           </div>
           <div className="form-group">
@@ -302,7 +252,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
         </h3>
         <div className="form-grid">
           <div className="form-group">
-            <label>Industry *</label>
+            <label>Industry <RequiredAsterisk /></label>
             <select value={form.industry} onChange={e => update('industry', e.target.value)} required>
               <option value="">Select an Industry</option>
               {Object.entries(INDUSTRY_GROUPS).map(([group, items]) => (
@@ -314,58 +264,61 @@ export default function ICPForm({ onSubmit, isLoading }) {
           </div>
 
           <div className="form-group">
-            <label>Company Segment *</label>
+            <label>Company Segment <span className="optional-tag">Optional</span></label>
             <div className="segment-pills">
               {COMPANY_SEGMENTS.map(seg => (
                 <button
                   key={seg.label}
                   type="button"
                   className={`segment-pill ${form.companySegment === seg.label ? 'active' : ''}`}
-                  onClick={() => updateSegment(form.companySegment === seg.label ? '' : seg.label)}
+                  onClick={() => toggleSegment(seg.label)}
+                  title={seg.desc}
                 >
                   {seg.label}
+                  <span className="segment-pill-desc">{seg.desc}</span>
                 </button>
               ))}
             </div>
           </div>
 
           <div className="form-group">
-            <label>Company Size (employees) *</label>
+            <label>Company Size (employees) <RequiredAsterisk /></label>
             <select value={form.companySize} onChange={e => update('companySize', e.target.value)} required>
               <option value="">Select Size</option>
-              {availableSizes.map(s => <option key={s.value} value={s.value}>{s.label} employees</option>)}
+              {EMPLOYEE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label} employees</option>)}
             </select>
           </div>
 
           <div className="form-group">
-            <label>Job Titles *</label>
+            <label>Job Titles <RequiredAsterisk /></label>
             <input
               type="text"
               value={form.jobTitles}
               onChange={e => update('jobTitles', e.target.value)}
-              placeholder="e.g. VP Sales, CRO, Head of Growth, SDR Manager, Director of Revenue Ops, CMO, Head of Demand Gen, VP Marketing"
+              placeholder="e.g. VP Sales, CRO, Head of Growth, SDR Manager"
               required
             />
           </div>
 
           <div className="form-group">
-            <label>Geography / Region *</label>
+            <label>Geography / Region <RequiredAsterisk /></label>
             <select value={form.geography} onChange={e => update('geography', e.target.value)} required>
               <option value="">Select Region</option>
-              <option value="Global">Global</option>
-              <option value="Americas">Americas</option>
-              <option value="EMEA">EMEA</option>
-              <option value="APAC">APAC</option>
+              {Object.entries(GEOGRAPHY_GROUPS).map(([group, items]) => (
+                <optgroup key={group} label={group}>
+                  {items.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                </optgroup>
+              ))}
             </select>
           </div>
 
           <div className="form-group">
-            <label>Tech Stack <span className="optional-tag">Optional</span> <span style={{ fontSize: 11, color: '#94a3b8' }}>— tools they currently use</span></label>
+            <label>Tech Stack <span className="optional-tag">Optional</span> <span className="section-subtitle">— tools they currently use</span></label>
             <input
               type="text"
               value={form.techStack}
               onChange={e => update('techStack', e.target.value)}
-              placeholder="e.g. Salesforce, HubSpot, Outreach, Gong, ZoomInfo"
+              placeholder="e.g. Salesforce, HubSpot, Outreach, Gong"
             />
           </div>
 
@@ -375,7 +328,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
               type="text"
               value={form.otherCriteria}
               onChange={e => update('otherCriteria', e.target.value)}
-              placeholder="e.g. Series B+ funding, recently hired SDRs, growing 50%+ YoY, public company"
+              placeholder="e.g. Series B+ funding, recently hired SDRs, growing 50%+ YoY"
             />
           </div>
         </div>
@@ -389,12 +342,12 @@ export default function ICPForm({ onSubmit, isLoading }) {
         </h3>
         <div className="form-grid">
           <div className="form-group full-width">
-            <label>Product Description *  <span style={{ fontSize: 11, fontWeight: 400, color: '#94a3b8' }}>— what your product is and what it solves</span></label>
+            <label>Product Description <RequiredAsterisk /> <span className="section-subtitle">— what your product is and what it solves</span></label>
             <textarea
               rows={3}
               value={form.productDescription}
               onChange={e => update('productDescription', e.target.value)}
-              placeholder="e.g. Mantyl is an AI powered GTM platform that automates ICP research, prospect enrichment, and personalized sequence generation so sales teams can launch targeted outbound campaigns in minutes instead of days."
+              placeholder="e.g. Mantyl is an AI powered GTM platform that automates ICP research, prospect enrichment, and personalized sequence generation"
               required
             />
           </div>
@@ -413,7 +366,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
               type="text"
               value={form.proposedSolution}
               onChange={e => update('proposedSolution', e.target.value)}
-              placeholder="e.g. AI powered ICP enrichment that auto generates personalized sequences in seconds"
+              placeholder="e.g. AI powered ICP enrichment that auto generates personalized sequences"
             />
           </div>
           <div className="form-group full-width">
@@ -422,7 +375,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
               type="text"
               value={form.openToLearnMore}
               onChange={e => update('openToLearnMore', e.target.value)}
-              placeholder="e.g. How teams are using AI to 3x their outbound pipeline without adding headcount"
+              placeholder="e.g. How teams are using AI to 3x their outbound pipeline"
             />
           </div>
         </div>
@@ -436,28 +389,28 @@ export default function ICPForm({ onSubmit, isLoading }) {
         </h3>
         <div className="form-grid">
           <div className="form-group">
-            <label>Number of Prospects (max 20) *</label>
+            <label>Number of Prospects (max 20) <RequiredAsterisk /></label>
             <div className="range-wrapper">
               <input type="range" min="1" max="20" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
               <span className="range-value">{form.prospectCount}</span>
             </div>
           </div>
           <div className="form-group">
-            <label>Touchpoints per Sequence *</label>
+            <label>Touchpoints per Sequence <RequiredAsterisk /></label>
             <div className="range-wrapper">
               <input type="range" min="3" max="12" value={form.touchpointCount} onChange={e => update('touchpointCount', parseInt(e.target.value))} />
               <span className="range-value">{form.touchpointCount}</span>
             </div>
           </div>
           <div className="form-group">
-            <label>Days Between Touchpoints *</label>
+            <label>Days Between Touchpoints <RequiredAsterisk /></label>
             <div className="range-wrapper">
               <input type="range" min="1" max="7" value={form.daySpacing} onChange={e => update('daySpacing', parseInt(e.target.value))} />
               <span className="range-value">{form.daySpacing}</span>
             </div>
           </div>
           <div className="form-group">
-            <label>Channels *</label>
+            <label>Channels <RequiredAsterisk /></label>
             <div className="checkbox-group">
               {[
                 { id: 'email', label: '📧 Email' },
@@ -472,8 +425,8 @@ export default function ICPForm({ onSubmit, isLoading }) {
               ))}
             </div>
           </div>
-          <div className="form-group">
-            <label>Copy Tone *</label>
+          <div className="form-group full-width">
+            <label>Copy Tone <RequiredAsterisk /></label>
             <div className="tone-selector">
               {TONES.map(t => (
                 <button
@@ -482,15 +435,18 @@ export default function ICPForm({ onSubmit, isLoading }) {
                   className={`tone-btn ${form.tone === t.id ? 'active' : ''}`}
                   onClick={() => update('tone', t.id)}
                 >
-                  <div className="tone-label">{t.label}</div>
-                  <div className="tone-desc">{t.desc}</div>
+                  <span className="tone-icon">{t.icon}</span>
+                  <div className="tone-text">
+                    <div className="tone-label">{t.label}</div>
+                    <div className="tone-desc">{t.desc}</div>
+                  </div>
                 </button>
               ))}
             </div>
           </div>
           {form.channels.includes('email') && (
-            <div className="form-group">
-              <label>Email Send Type *</label>
+            <div className="form-group full-width">
+              <label>Email Send Type <RequiredAsterisk /></label>
               <div className="send-type-toggle">
                 <button type="button" className={`send-type-btn ${form.emailSendType === 'manual' ? 'active' : ''}`} onClick={() => update('emailSendType', 'manual')}>
                   <span className="send-type-icon">✍️</span>
@@ -512,17 +468,22 @@ export default function ICPForm({ onSubmit, isLoading }) {
         </div>
       </div>
 
-      {/* Sequence Structure Preview */}
-      <div className="form-section" style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
-        <h3 className="form-section-title" style={{ marginBottom: 12 }}>
+      {/* Sequence Structure Preview — redesigned */}
+      <div className="form-section preview-section">
+        <h3 className="form-section-title" style={{ marginBottom: 16 }}>
           <span className="icon" style={{ background: 'rgba(212,132,154,0.1)', color: '#D4849A' }}>📋</span>
-          Sequence Structure Preview
+          Sequence Blueprint
+          <span className="section-subtitle">— your {form.touchpointCount}-step outbound cadence over {(form.touchpointCount - 1) * form.daySpacing} days</span>
         </h3>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="preview-timeline">
           {buildPreviewSteps(form.touchpointCount, form.channels, form.daySpacing).map((step, i) => (
-            <div key={i} className={`preview-chip ${step.stage}`}>
-              <span style={{ opacity: 0.7 }}>Day {step.day}</span>
-              {channelEmoji(step.channel)} {step.stage.replace('_', ' ')}
+            <div key={i} className={`preview-step ${step.stage}`}>
+              <div className="preview-step-day">Day {step.day}</div>
+              <div className="preview-step-dot" />
+              <div className="preview-step-info">
+                <span className="preview-step-channel">{channelEmoji(step.channel)} {step.channel}</span>
+                <span className={`preview-step-stage ${step.stage}`}>{step.stage.replace('_', ' ')}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -532,7 +493,10 @@ export default function ICPForm({ onSubmit, isLoading }) {
         {isLoading ? (
           <><span className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }} /> Generating...</>
         ) : (
-          <>🚀 Generate Sequence</>
+          <>
+            <span className="generate-sparkle">✦</span>
+            Generate Sequences
+          </>
         )}
       </button>
     </form>

@@ -5,13 +5,6 @@ import SequenceCopy from './components/SequenceCopy'
 import MantylLoader from './components/MantylLoader'
 import { findProspects, generateSequence } from './utils/apiClient'
 
-const LOGO_SVG = `<svg viewBox="0 0 220 50" xmlns="http://www.w3.org/2000/svg">
-<defs><linearGradient id="a" x1="0%" y1="100%" x2="50%" y2="0%"><stop offset="0%" stop-color="#5A79CA"/><stop offset="100%" stop-color="#8B6DB3"/></linearGradient>
-<linearGradient id="b" x1="50%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#C06E85"/><stop offset="100%" stop-color="#D4856A"/></linearGradient></defs>
-<g transform="translate(2,3) scale(1)"><path d="M4 38 L18 6 L26 30 Z" fill="url(#a)" opacity="0.85"/><path d="M22 30 L30 6 L44 38 Z" fill="url(#b)" opacity="0.75"/></g>
-<text x="58" y="37" font-family="Inter,sans-serif" font-weight="800" font-size="30" letter-spacing="-0.5" fill="#ffffff">mantyl</text>
-</svg>`
-
 const CALENDLY_URL = 'https://calendly.com/mantyl/demo'
 
 function getUsageCount() {
@@ -36,10 +29,9 @@ export default function App() {
     setError(null)
     setFormData(form)
 
-    // Step 1: Find prospects
     setStep('loading')
     setLoadingMessage('Searching for prospects matching your ICP...')
-    setLoadingSub('Enriching contact data via Clay')
+    setLoadingSub('Enriching contact data via Apollo')
 
     try {
       const prospectData = await findProspects({
@@ -59,7 +51,6 @@ export default function App() {
 
       setProspects(prospectData.prospects)
 
-      // Step 2: Generate sequences
       setLoadingMessage(`Writing personalized copy for ${prospectData.prospects.length} prospects...`)
       setLoadingSub('Claude is generating unique messages for each touchpoint')
 
@@ -113,23 +104,80 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* ── Enterprise Header ─────────────────────────── */}
       <header className="header">
-        <div dangerouslySetInnerHTML={{ __html: LOGO_SVG }} style={{ height: 32, width: 'auto' }} />
-        <span className="header-badge">Free Tool</span>
+        <div className="header-left">
+          <a href="https://mantyl.ai" target="_blank" rel="noopener noreferrer" className="header-logo-link">
+            <img src="/logos/mantyl-full-light.svg" alt="Mantyl" className="header-logo-img" />
+          </a>
+          <div className="header-divider" />
+          <span className="header-product-name">Sequence Generator</span>
+        </div>
+        <div className="header-right">
+          <span className="header-badge-ai">
+            <span className="ai-sparkle">✦</span>
+            AI-Powered
+          </span>
+          <a href={CALENDLY_URL} target="_blank" rel="noopener noreferrer" className="header-cta-btn">
+            Book a Demo
+          </a>
+        </div>
       </header>
 
+      {/* ── Hero Section ────────────────────────────────── */}
       <section className="hero">
-        <h1>ICP-to-<span>Sequence</span> Generator</h1>
-        <p>Find prospects matching your ICP, then generate personalized multi-channel outbound sequences — powered by AI.</p>
+        <div className="hero-particles">
+          <div className="particle p1" />
+          <div className="particle p2" />
+          <div className="particle p3" />
+          <div className="particle p4" />
+          <div className="particle p5" />
+        </div>
+        <div className="hero-glow" />
+        <div className="hero-content">
+          <div className="hero-eyebrow">
+            <span className="eyebrow-dot" />
+            Outbound Automation Engine
+          </div>
+          <h1>
+            Define Your ICP.<br />
+            <span className="hero-gradient-text">We Generate the Sequences.</span>
+          </h1>
+          <p className="hero-subtitle">
+            Enter your ideal customer profile, and our AI finds real prospects, enriches their data, and writes personalized multi-channel sequences — ready to launch.
+          </p>
+          <div className="hero-stats">
+            <div className="hero-stat">
+              <span className="stat-number">270M+</span>
+              <span className="stat-label">Contacts</span>
+            </div>
+            <div className="hero-stat-divider" />
+            <div className="hero-stat">
+              <span className="stat-number">3</span>
+              <span className="stat-label">Channels</span>
+            </div>
+            <div className="hero-stat-divider" />
+            <div className="hero-stat">
+              <span className="stat-number">&lt;60s</span>
+              <span className="stat-label">Generation</span>
+            </div>
+          </div>
+        </div>
+        {/* Progress Steps */}
         <div className="progress-bar">
           <div className={`progress-step ${step === 'form' ? 'active' : (step !== 'form' ? 'completed' : '')}`}>
-            {step !== 'form' ? '✓' : '1'} Define ICP
+            <span className="progress-num">{step !== 'form' ? '✓' : '1'}</span>
+            Define ICP
           </div>
+          <div className="progress-connector" />
           <div className={`progress-step ${step === 'loading' ? 'active' : (step === 'results' ? 'completed' : '')}`}>
-            {step === 'results' ? '✓' : '2'} Find & Enrich
+            <span className="progress-num">{step === 'results' ? '✓' : '2'}</span>
+            Find & Enrich
           </div>
+          <div className="progress-connector" />
           <div className={`progress-step ${step === 'results' ? 'completed' : ''}`}>
-            {step === 'results' ? '✓' : '3'} Generate Copy
+            <span className="progress-num">{step === 'results' ? '✓' : '3'}</span>
+            Generate Copy
           </div>
         </div>
       </section>
@@ -181,7 +229,11 @@ export default function App() {
                 <a href={CALENDLY_URL} target="_blank" rel="noopener noreferrer" className="usage-limit-btn">Book a Meeting</a>
               </div>
             )}
-            <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'flex-end' }}>
+            <div className="results-top-bar fade-in">
+              <div className="results-summary">
+                <span className="results-icon">✦</span>
+                <span><strong>{prospects.length} prospects</strong> found &amp; enriched · <strong>{sequences.length} sequences</strong> generated</span>
+              </div>
               <button className="btn-secondary" onClick={handleReset}>← New Search</button>
             </div>
             <div className="stacked-layout fade-in">
@@ -214,7 +266,10 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        Powered by <a href="https://mantyl.ai" target="_blank" rel="noopener noreferrer">mantyl.ai</a> — AI-Powered GTM Automation
+        <div className="footer-inner">
+          <img src="/logos/mantyl-icon.svg" alt="" className="footer-logo-icon" />
+          <span>Powered by <a href="https://mantyl.ai" target="_blank" rel="noopener noreferrer">mantyl.ai</a> — AI-Powered GTM Automation</span>
+        </div>
       </footer>
     </div>
   )
