@@ -33,6 +33,7 @@ export default function App() {
     setLoadingMessage('Searching for prospects matching your ICP...')
     setLoadingSub('Enriching contact data via Apollo')
 
+    let foundProspects = null
     try {
       const prospectData = await findProspects({
         industry: form.industry,
@@ -49,9 +50,10 @@ export default function App() {
         throw new Error('No prospects found matching your ICP. Try broadening your criteria.')
       }
 
-      setProspects(prospectData.prospects)
+      foundProspects = prospectData.prospects
+      setProspects(foundProspects)
 
-      const totalProspects = prospectData.prospects.length
+      const totalProspects = foundProspects.length
       setLoadingMessage(`Writing personalized sequences for ${totalProspects} prospects...`)
       setLoadingSub(`Starting generation...`)
 
@@ -99,7 +101,8 @@ export default function App() {
     } catch (err) {
       console.error(err)
       setError(err.message)
-      if (prospects.length > 0) {
+      // Use local variable — React state (prospects) is stale inside this closure
+      if (foundProspects && foundProspects.length > 0) {
         setStep('results')
       } else {
         setStep('form')

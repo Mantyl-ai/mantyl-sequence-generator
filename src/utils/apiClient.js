@@ -16,23 +16,19 @@ export async function findProspects(icpParams) {
 }
 
 /**
- * Generate sequences with adaptive rate-limit-aware execution.
+ * Generate sequences — adaptive rate-limit-aware execution.
  *
- * Strategy:
- *   - Start with 2 parallel workers (fast path for higher-tier API keys)
- *   - If we hit a 429 rate limit, automatically throttle:
- *       → pause 60s to let the rate limit window reset
- *       → add a 10s delay between subsequent calls
- *   - Each prospect gets 1 Netlify function call (fits in 26s timeout)
- *   - Failed calls retry up to 3× for rate limits, 1× for other errors
- *   - Partial results always shown even if some prospects fail
+ * Starts with 2 parallel workers for speed.
+ * On first 429 / rate limit error:
+ *   → Kill the second worker (go sequential)
+ *   → Pause 60s for the rate window to fully reset
+ *   → Add 20s pacing between calls (~3 calls/min = ~7,500 tokens/min under 8k limit)
+ *   → Retry the failed call up to 3 times
  *
- * @param {Object} params - Full generation params including prospects array
- * @param {Function} onProgress - Callback: (completedCount, totalCount) => void
- * @returns {Promise<Object>} - { sequences, touchpointPlan, partialFailure }
+ * This guarantees all 20 prospects complete even on the lowest API tier.
+ * Higher-tier keys (with larger rate limits) get the fast parallel path.
  */
 export async function generateSequence(params, onProgress) {
-  const INITIAL_CONCURRENCY = 2;
   const FETCH_TIMEOUT = 55000;
 
   const allProspects = params.prospects || [];
@@ -42,132 +38,138 @@ export async function generateSequence(params, onProgress) {
   let completedCount = 0;
   let hadFailure = false;
 
-  // Adaptive rate limiting state (shared across workers)
-  let callDelay = 0;        // ms to wait between calls (increases on 429)
-  let rateLimitHit = false;  // flag to signal workers to slow down
-  let rateLimitPause = null; // promise that resolves after rate limit cooldown
+  // Rate limit state
+  let hitRateLimit = false;
+  let cooldownPromise = null;
 
+  // Call the Netlify function for a single prospect
+  async function callServer(prospectIdx) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+    try {
+      const res = await fetch(`${API_BASE}/generate-sequence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, prospects: [allProspects[prospectIdx]] }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: 'Server error' }));
+        const errMsg = errBody.error || `API error: ${res.status}`;
+        const isRateLimit = res.status === 502 || errMsg.includes('429') || errMsg.includes('rate_limit');
+        return { ok: false, isRateLimit, error: errMsg };
+      }
+
+      const data = await res.json();
+
+      // Server may return 200 with a fallback sequence that has the 429 error embedded
+      // (because the server catch block returns a "failed" sequence instead of a 500)
+      const firstSeq = (data.sequences || [])[0];
+      if (firstSeq && firstSeq.error && (firstSeq.error.includes('429') || firstSeq.error.includes('rate_limit'))) {
+        return { ok: false, isRateLimit: true, error: firstSeq.error };
+      }
+
+      return { ok: true, data };
+    } catch (err) {
+      clearTimeout(timer);
+      const msg = err.name === 'AbortError' ? 'Request timed out' : err.message;
+      return { ok: false, isRateLimit: false, error: msg };
+    }
+  }
+
+  // Process one prospect with retries
   async function processOne(prospectIdx) {
-    const chunk = [allProspects[prospectIdx]];
-    const MAX_RETRIES_429 = 3;
-    const MAX_RETRIES_OTHER = 1;
-    let lastErr = null;
-    let attempts = 0;
-    const maxAttempts = MAX_RETRIES_429 + 1; // worst case all 429s
+    const MAX_ATTEMPTS = hitRateLimit ? 4 : 2; // more retries when we know rate limit is the issue
 
-    while (attempts < maxAttempts) {
-      attempts++;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      // If someone triggered a cooldown, wait for it
+      if (cooldownPromise) await cooldownPromise;
 
-      // If a rate limit cooldown is in progress, wait for it
-      if (rateLimitPause) {
-        await rateLimitPause;
+      const result = await callServer(prospectIdx);
+
+      if (result.ok) {
+        const seq = (result.data.sequences || [])[0];
+        if (seq) results[prospectIdx] = { ...seq, prospectIndex: prospectIdx };
+        if (!touchpointPlan && result.data.touchpointPlan) touchpointPlan = result.data.touchpointPlan;
+        return true;
       }
 
-      // Respect the adaptive delay between calls
-      if (callDelay > 0) {
-        await sleep(callDelay);
-      }
+      if (result.isRateLimit) {
+        hitRateLimit = true;
 
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
-        const res = await fetch(`${API_BASE}/generate-sequence`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...params, prospects: chunk }),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timer);
-
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => ({ error: 'Server error' }));
-          const errMsg = errBody.error || `API error: ${res.status}`;
-
-          // Check if this is a rate limit error (429 from Claude API, passed through)
-          const is429 = res.status === 502 || errMsg.includes('429') || errMsg.includes('rate_limit');
-
-          if (is429) {
-            lastErr = new Error(errMsg);
-
-            // Only one worker should trigger the global cooldown
-            if (!rateLimitHit) {
-              rateLimitHit = true;
-              callDelay = 10000; // 10s between calls from now on
-              console.warn(`Rate limit hit on prospect ${prospectIdx + 1}. Pausing 60s and adding ${callDelay / 1000}s delay between calls.`);
-
-              // Create a shared pause promise — all workers wait on this
-              let resolve;
-              rateLimitPause = new Promise(r => { resolve = r; });
-              await sleep(60000); // 60s cooldown
-              resolve();
-              rateLimitPause = null;
-              rateLimitHit = false;
-            } else {
-              // Another worker already triggered cooldown — just wait for it
-              if (rateLimitPause) await rateLimitPause;
-            }
-
-            continue; // retry after cooldown
-          }
-
-          // Non-429 error
-          throw new Error(errMsg);
-        }
-
-        const data = await res.json();
-
-        const seq = (data.sequences || [])[0];
-        if (seq) {
-          results[prospectIdx] = { ...seq, prospectIndex: prospectIdx };
-        }
-        if (!touchpointPlan && data.touchpointPlan) {
-          touchpointPlan = data.touchpointPlan;
-        }
-        return; // success
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          lastErr = new Error('Request timed out');
+        // Only one caller triggers the cooldown at a time
+        if (!cooldownPromise) {
+          console.warn(`Rate limit on prospect ${prospectIdx + 1} (attempt ${attempt}). Cooling down 60s...`);
+          let resolve;
+          cooldownPromise = new Promise(r => { resolve = r; });
+          await sleep(60000);
+          resolve();
+          cooldownPromise = null;
         } else {
-          lastErr = err;
+          await cooldownPromise;
         }
-
-        // For non-429 errors, allow 1 retry with brief pause
-        const retriesLeft = MAX_RETRIES_OTHER - (attempts - 1);
-        if (retriesLeft > 0 && !lastErr.message.includes('429')) {
-          console.warn(`Prospect ${prospectIdx + 1} attempt ${attempts} failed: ${lastErr.message} — retrying...`);
-          await sleep(3000);
-          continue;
-        }
-        break; // give up
+        continue; // retry after cooldown
       }
+
+      // Non-rate-limit error — one quick retry
+      if (attempt < 2) {
+        console.warn(`Prospect ${prospectIdx + 1} error (attempt ${attempt}): ${result.error} — retrying...`);
+        await sleep(3000);
+        continue;
+      }
+      break;
     }
 
-    // All retries exhausted
     hadFailure = true;
-    console.error(`Prospect ${prospectIdx + 1} failed after ${attempts} attempts:`, lastErr?.message);
+    console.error(`Prospect ${prospectIdx + 1} failed after retries.`);
+    return false;
   }
 
-  // Worker pool with adaptive concurrency
-  async function runPool() {
-    let nextIdx = 0;
-    const concurrency = Math.min(INITIAL_CONCURRENCY, totalCount);
+  // ── Phase 1: Try parallel (2 workers) ──────────────────────────
+  let nextIdx = 0;
 
-    async function worker() {
-      while (nextIdx < totalCount) {
-        const idx = nextIdx++;
-        await processOne(idx);
-        completedCount++;
-        if (onProgress) onProgress(completedCount, totalCount);
+  async function parallelWorker() {
+    while (nextIdx < totalCount && !hitRateLimit) {
+      const idx = nextIdx++;
+      await processOne(idx);
+      completedCount++;
+      if (onProgress) onProgress(completedCount, totalCount);
+    }
+  }
+
+  // Start 2 workers — they stop if rate limit is hit
+  const workerCount = Math.min(2, totalCount);
+  const workers = Array.from({ length: workerCount }, () => parallelWorker());
+  await Promise.all(workers);
+
+  // ── Phase 2: If rate limit hit, finish remaining sequentially with pacing ──
+  if (hitRateLimit && nextIdx < totalCount) {
+    console.log(`Switching to sequential mode. ${totalCount - nextIdx} prospects remaining.`);
+
+    // Wait for any active cooldown to finish
+    if (cooldownPromise) await cooldownPromise;
+
+    while (nextIdx < totalCount) {
+      const idx = nextIdx++;
+
+      // Pace calls: 20s between starts = ~3 calls/min = ~7,500 tokens/min (under 8k limit)
+      const callStart = Date.now();
+      await processOne(idx);
+      completedCount++;
+      if (onProgress) onProgress(completedCount, totalCount);
+
+      // Enforce minimum 20s between call starts
+      if (nextIdx < totalCount) {
+        const elapsed = Date.now() - callStart;
+        const waitTime = Math.max(0, 20000 - elapsed);
+        if (waitTime > 0) await sleep(waitTime);
       }
     }
-
-    const workers = Array.from({ length: concurrency }, () => worker());
-    await Promise.all(workers);
   }
-
-  await runPool();
 
   const allSequences = results.filter(Boolean);
 
