@@ -35,5 +35,8 @@ yarn-error.log*
 # Preview files (dev only)
 preview-*.html
 
+# Deprecated files
+*.deleted
+
 # Coverage
 coverage/

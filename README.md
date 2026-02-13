@@ -1,185 +1,66 @@
-# ICP-to-Sequence Generator
+# Mantyl Sequence Generator
 
-> AI-powered outbound sales tool that finds prospects matching your Ideal Customer Profile and generates personalized multi-channel sequences.
+**AI-powered outbound prospecting engine** that discovers, enriches, and activates sales prospects — from ICP definition to ready-to-send multi-channel sequences in under 60 seconds.
 
 Built by [mantyl.ai](https://mantyl.ai) — AI-Powered GTM Automation.
 
+**Live:** [tools.mantyl.ai](https://tools.mantyl.ai)
+
 ---
 
-## Overview
+## What This Does
 
-This is a full-stack web application that automates the two hardest parts of outbound sales: finding the right people and writing personalized copy at scale.
+Traditional outbound sales requires stitching together 4–6 tools: a lead database, an enrichment layer, an email verifier, a copywriter, and a sequencer. This application collapses that into a single workflow:
 
-**What it does:**
+1. **Define your ICP** — industry, company segment, size, titles, geography, tech stack
+2. **Prospect discovery** — searches 270M+ B2B contacts via Apollo.io with real-time enrichment
+3. **Waterfall email enrichment** — Apollo → Hunter.io → pattern-based inference with verification
+4. **Async phone enrichment** — direct dials and mobile numbers delivered via webhook polling
+5. **AI-generated sequences** — Claude produces personalized multi-channel copy (email, LinkedIn, phone) per prospect
 
-1. Takes your ICP parameters (industry, segment, job titles, geography, etc.)
-2. Searches and enriches matching prospects via Clay API
-3. Generates a complete multi-channel outbound sequence (email, LinkedIn, calling) for each prospect via Claude API
-4. Outputs personalized, ready-to-use copy with your sender profile baked in
+Every prospect gets a unique sequence informed by their role, company, industry, and your product context.
 
-**Key features:**
-
-- 156 industries across 14 categories (Apollo-style taxonomy)
-- 11 granular company size intervals with segment mapping (SMB / Midmarket / Enterprise)
-- 3 tone options: Professional, Casual, Simple
-- Auto vs Manual email send type with distinct copy styles
-- Sender profile sign-off threaded through all generated copy
-- Product description and messaging context for relevant personalization
-- CSV export for prospect data + sequences
-- Usage tracking with CTA gating after 3 uses
-- Hard cap at 20 prospects per run for cost control
-
-## Architecture
+## Technical Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                    React + Vite                       │
-│              (Single Page Application)                │
-│                                                       │
-│  ICPForm → MantylLoader → ProspectList + SequenceCopy│
-└──────────────────┬──────────────────┬────────────────┘
-                   │                  │
-            /.netlify/functions  /.netlify/functions
-                   │                  │
-     ┌─────────────▼──┐    ┌─────────▼──────────┐
-     │ find-prospects  │    │ generate-sequence   │
-     │  (Clay API)     │    │  (Anthropic API)    │
-     └────────────────┘    └────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     React 18 + Vite 6                       │
+│                  Single Page Application                    │
+│                                                             │
+│   ICPForm ──→ MantylLoader ──→ ProspectList + SequenceCopy  │
+└────────────────┬────────────────┬──────────────┬───────────┘
+                 │                │              │
+          POST /find-     POST /generate-   GET /phone-
+          prospects       sequence          webhook/:id
+                 │                │              │
+   ┌─────────────▼────┐  ┌───────▼────────┐  ┌──▼──────────┐
+   │  find-prospects   │  │ generate-      │  │ phone-      │
+   │                   │  │ sequence       │  │ webhook     │
+   │  4-Step Pipeline: │  │                │  │             │
+   │  1. Apollo Search │  │ Claude API     │  │ Apollo      │
+   │  2. Apollo Enrich │  │ (Sonnet 4.5)   │  │ Async       │
+   │  3. Hunter.io     │  │                │  │ Delivery    │
+   │  4. Pattern Guess │  │ Adaptive rate  │  │             │
+   └──────────────────┘  │ limiting       │  │ /tmp/ store │
+                          └────────────────┘  └─────────────┘
 ```
 
-| Layer | Tech | Purpose |
-|-------|------|---------|
-| Frontend | React 18, Vite 6 | SPA with form, results, loading states |
-| Backend | Netlify Functions (serverless) | Two API routes, no server to manage |
-| Prospect Data | Clay API | Search, filter, and enrich B2B contacts |
-| Copy Generation | Claude API (claude-sonnet-4-5-20250929) | Personalized sequence copy per prospect |
-| Styling | Custom CSS (1,400+ lines) | Mantyl brand system, fully responsive |
-| Deployment | Netlify | Single-repo deploy with functions |
+### Enrichment Pipeline
 
-## Project Structure
+The enrichment pipeline uses a **waterfall strategy** — each step fills gaps left by the previous one, maximizing data coverage without redundant API spend.
 
-```
-sequence-generator/
-├── src/
-│   ├── components/
-│   │   ├── ICPForm.jsx            # Form with ICP params, sender profile, sequence settings
-│   │   ├── ProspectList.jsx       # Full-width prospect table with enrichment status
-│   │   ├── SequenceCopy.jsx       # Touchpoint cards with copy/paste and prospect selector
-│   │   └── MantylLoader.jsx       # Branded loading animation (sail SVGs, orbit dots)
-│   ├── utils/
-│   │   ├── apiClient.js           # Fetch wrapper for Netlify Functions
-│   │   └── csvExport.js           # CSV download utility
-│   ├── App.jsx                    # Root component, state management, usage tracking
-│   ├── main.jsx                   # Entry point
-│   └── index.css                  # Complete Mantyl design system
-├── netlify/
-│   └── functions/
-│       ├── find-prospects.js      # Clay API integration with fallback strategies
-│       └── generate-sequence.js   # Claude API with tone, product context, sender sign-off
-├── public/
-│   ├── logos/                     # Brand logo assets
-│   └── mantyl-favicon-32.png     # Favicon
-├── index.html                     # HTML shell with meta tags and Inter font
-├── netlify.toml                   # Build config, functions directory, CORS headers
-├── vite.config.js                 # Vite config with dev proxy
-├── package.json                   # Dependencies and scripts
-├── .env.example                   # Required environment variables
-├── .gitignore                     # Git exclusions
-├── .nvmrc                         # Node version pin
-├── .prettierrc                    # Code formatting rules
-└── .eslintrc.json                 # Linting configuration
-```
+| Step | Provider | What It Does | Fallback Trigger |
+|------|----------|-------------|-----------------|
+| 1. Search | Apollo.io | Bulk people search with ICP filters, returns name, title, company, LinkedIn | — |
+| 2. Enrich | Apollo.io | Individual enrichment for email, phone, domain, org data | — |
+| 3. Gap-Fill | Hunter.io | Email Finder API for prospects missing email after Apollo | `!prospect.email && prospect.companyDomain` |
+| 4. Inference | Pattern Engine | Constructs emails from common corporate patterns, verifies via Hunter Email Verifier | `!prospect.email` (always assigns) |
 
-## Getting Started
+**Pattern engine details:** Detects email patterns from known contacts at the same domain (e.g., if `john.doe@acme.com` exists, infers `first.last` pattern). Falls back to frequency-weighted guessing: `first.last` (55%), `first` (15%), `flast` (12%), `firstl` (8%), `first_last` (5%). Infers domains from company names when Apollo doesn't return one.
 
-### Prerequisites
+### Sequence Generation
 
-- Node.js 18+ (see `.nvmrc`)
-- npm 9+
-- [Netlify CLI](https://docs.netlify.com/cli/get-started/) (`npm i -g netlify-cli`)
-- API keys for Clay and Anthropic
-
-### Installation
-
-```bash
-# Clone the repo
-git clone https://github.com/your-org/mantyl-sequence-generator.git
-cd mantyl-sequence-generator
-
-# Install dependencies
-npm install
-
-# Copy environment variables
-cp .env.example .env
-# Then fill in your CLAY_API_KEY and ANTHROPIC_API_KEY
-```
-
-### Local Development
-
-```bash
-# Start Vite dev server + Netlify Functions (port 8888)
-npx netlify dev
-```
-
-This runs the full stack locally. The Vite dev server proxies `/.netlify/functions/*` requests to the local Netlify Functions runtime.
-
-### Build
-
-```bash
-npm run build
-```
-
-Output goes to `dist/`. Netlify runs this automatically on deploy.
-
-## Deployment
-
-### Netlify (recommended)
-
-1. Push to GitHub
-2. Connect repo in Netlify dashboard → "Import an existing project"
-3. Build settings are auto-detected from `netlify.toml`:
-   - **Build command:** `npm run build`
-   - **Publish directory:** `dist`
-   - **Functions directory:** `netlify/functions`
-4. Add environment variables in **Site Settings → Environment Variables**:
-
-| Variable | Required | Where to get it |
-|----------|----------|-----------------|
-| `CLAY_API_KEY` | Yes | [clay.com → Settings → API](https://app.clay.com/settings/api) |
-| `ANTHROPIC_API_KEY` | Yes | [console.anthropic.com → API Keys](https://console.anthropic.com/settings/keys) |
-
-5. Deploy. That's it.
-
-### Custom Domain
-
-To serve at `tools.mantyl.ai` or a subpath of your main site:
-
-- **Subdomain:** Add `tools.mantyl.ai` as a custom domain in Netlify → Domain settings
-- **Iframe embed:** Deploy as a separate Netlify site and embed:
-  ```html
-  <iframe src="https://tools.mantyl.ai" width="100%" height="900" frameborder="0"></iframe>
-  ```
-
-## API Integration Details
-
-### Clay API (`find-prospects.js`)
-
-- Endpoint: `POST /v3/sources/search-people` with fallback to `/v3/run-table`
-- Filters: industry, company size (min/max employees), job titles, geography, tech stack
-- Response normalized across multiple Clay response formats
-- Enrichment status derived from available data (email, phone, LinkedIn)
-
-### Claude API (`generate-sequence.js`)
-
-- Model: `claude-sonnet-4-5-20250929`
-- System prompt includes: tone instructions, sender sign-off, product context, no-dashes formatting rule, auto/manual send type guidance
-- Prospects batched in groups of 5 to avoid rate limits
-- Structured JSON output parsed from Claude response
-- Graceful fallback with error message if generation fails for a prospect
-
-### Sequence Logic
-
-Each sequence follows an **Opening → Value Add → Closing** arc:
+Claude generates sequences using an **Opening → Value Add → Closing** arc with prospect-specific personalization:
 
 | Position | Stage | Purpose |
 |----------|-------|---------|
@@ -187,17 +68,182 @@ Each sequence follows an **Opening → Value Add → Closing** arc:
 | Middle 40% | Value Add | Share insights, case studies, industry trends — no hard sell |
 | Final 30% | Closing | Specific ask (demo/call/meeting), create urgency |
 
-Channel assignment rotates through selected channels. First touchpoint is always email. Last touchpoint defaults to calling if enabled.
+The generation engine uses **adaptive rate limiting**: starts with 2 parallel workers for throughput, detects 429 responses, and falls back to sequential execution with 20-second pacing. Retries up to 4 times per prospect. This guarantees completion even on the lowest API tier.
 
-## Cost Considerations
+## Tech Stack
+
+| Layer | Technology | Details |
+|-------|-----------|---------|
+| Frontend | React 18, Vite 6 | SPA with optimistic UI, real-time progress indicators |
+| Backend | Netlify Functions (Node.js) | 4 serverless functions, esbuild bundled |
+| Prospect Data | Apollo.io API | Search + enrichment, 270M+ contact database |
+| Email Gap-Fill | Hunter.io API | Email Finder + Email Verifier endpoints |
+| Copy Generation | Anthropic Claude API | `claude-sonnet-4-5-20250929`, structured JSON output |
+| Phone Delivery | Apollo Webhook → `/tmp/` store | Async phone enrichment with polling |
+| Styling | Custom CSS | 1,400+ lines, Mantyl design system, fully responsive |
+| Deployment | Netlify | Git-push deploy, automatic HTTPS, edge CDN |
+
+## Project Structure
+
+```
+sequence-generator/
+├── src/
+│   ├── components/
+│   │   ├── ICPForm.jsx            # ICP parameters, sender profile, sequence settings
+│   │   ├── ProspectList.jsx       # Enriched prospect table with status badges
+│   │   ├── SequenceCopy.jsx       # Per-prospect sequence viewer with copy/paste
+│   │   └── MantylLoader.jsx       # Branded loading animation
+│   ├── utils/
+│   │   ├── apiClient.js           # API client with adaptive rate limiting + phone polling
+│   │   └── csvExport.js           # CSV export for prospects + sequences
+│   ├── App.jsx                    # Root state management, orchestration
+│   ├── main.jsx                   # Entry point
+│   └── index.css                  # Mantyl design system (CSS custom properties)
+├── netlify/
+│   └── functions/
+│       ├── find-prospects.js      # 4-step enrichment pipeline (Apollo → Hunter → Pattern)
+│       ├── generate-sequence.js   # Claude API with tone/context/sender threading
+│       ├── phone-webhook.js       # Apollo async phone data receiver + polling endpoint
+│       └── get-phones.js          # Phone data retrieval endpoint
+├── public/
+│   └── logos/                     # Brand assets (SVG)
+├── index.html                     # HTML shell with meta tags
+├── netlify.toml                   # Build + function config, CORS headers
+├── vite.config.js                 # Vite config with dev proxy
+├── package.json                   # Dependencies and scripts
+├── .env.example                   # Required environment variables
+├── .nvmrc                         # Node 18 version pin
+├── .prettierrc                    # Code formatting
+└── .eslintrc.json                 # Linting rules
+```
+
+## Getting Started
+
+### Prerequisites
+
+- **Node.js 18+** (see `.nvmrc`)
+- **npm 9+**
+- **Netlify CLI**: `npm i -g netlify-cli`
+- **API Keys**: Apollo.io, Anthropic, Hunter.io (optional but recommended)
+
+### Installation
+
+```bash
+git clone https://github.com/your-org/mantyl-sequence-generator.git
+cd mantyl-sequence-generator
+npm install
+cp .env.example .env
+```
+
+Edit `.env` with your API credentials (see [Environment Variables](#environment-variables)).
+
+### Local Development
+
+```bash
+npx netlify dev
+```
+
+Runs the Vite dev server on port 5173 with Netlify Functions proxied through port 8888. All `/.netlify/functions/*` requests route to the local function runtime.
+
+### Production Build
+
+```bash
+npm run build
+```
+
+Output: `dist/`. Netlify executes this automatically on every deploy.
+
+## Deployment
+
+### Netlify (Recommended)
+
+1. Push to GitHub
+2. Import in Netlify Dashboard → **"Import an existing project"**
+3. Build settings auto-detected from `netlify.toml`:
+   - Build command: `npm run build`
+   - Publish directory: `dist`
+   - Functions directory: `netlify/functions`
+4. Configure environment variables in **Site Settings → Environment Variables**
+5. Deploy
+
+### Custom Domain
+
+Add `tools.yourdomain.com` as a custom domain in Netlify → Domain settings. Automatic SSL provisioning via Let's Encrypt.
+
+## Environment Variables
+
+| Variable | Required | Description | Where to Get It |
+|----------|----------|-------------|-----------------|
+| `APOLLO_API_KEY` | **Yes** | Prospect search and enrichment | [Apollo Settings → API](https://app.apollo.io/#/settings/integrations/api) |
+| `ANTHROPIC_API_KEY` | **Yes** | Sequence copy generation (Claude) | [Anthropic Console → API Keys](https://console.anthropic.com/settings/keys) |
+| `HUNTER_API_KEY` | Recommended | Email gap-fill and verification | [Hunter.io → API](https://hunter.io/api-keys) |
+
+**Without `HUNTER_API_KEY`:** The system still works. Apollo handles primary enrichment. Pattern guessing runs without verification (lower confidence emails). Adding Hunter significantly improves email deliverability.
+
+## API Integration Details
+
+### Apollo.io (`find-prospects.js`)
+
+- **Search**: `POST /v1/mixed_people/search` with organization and person filters
+- **Enrich**: `POST /v1/people/match` for individual contact enrichment
+- **Phone Webhook**: Apollo delivers phone numbers asynchronously via webhook; the app polls `/phone-webhook/:sessionId` every 5 seconds for up to 2 minutes
+- **Filters**: Industry, employee count range, job titles (array), geography, technology tags, keyword criteria
+
+### Hunter.io (`find-prospects.js` — Step 3)
+
+- **Email Finder**: `GET /v2/email-finder?domain=X&first_name=Y&last_name=Z`
+- **Email Verifier**: `GET /v2/email-verifier?email=X` — returns `valid`, `invalid`, `accept_all`, or `unknown`
+- **Rate handling**: Stops on 429 (rate limit) or 402 (quota exhausted), gracefully skips remaining
+- **Scoring**: Emails with Hunter confidence score ≥80 marked `hunter_verified`; 50–79 marked `hunter_guessed`
+
+### Anthropic Claude (`generate-sequence.js`)
+
+- **Model**: `claude-sonnet-4-5-20250929`
+- **System prompt**: Includes tone instructions, sender sign-off, product context, channel-specific formatting rules
+- **Output**: Structured JSON with touchpoint array (day, channel, subject, body)
+- **Rate limiting**: Adaptive parallel → sequential fallback with 60s cooldown on 429
+
+## Email Validation Badges
+
+The prospect table displays verification status for each email:
+
+| Badge | Meaning | Source |
+|-------|---------|--------|
+| ✓ (green) | Verified deliverable | Apollo verified or Hunter `valid` |
+| ~ (yellow) | Likely valid, unverified | Hunter guessed (score 50–79) or pattern-inferred |
+| ? (gray) | Unknown status | Email present but no verification data |
+
+## Cost Estimates
 
 | Service | Pricing Model | Per-Run Estimate (10 prospects) |
 |---------|--------------|-------------------------------|
-| Clay | Per enrichment credit | ~10 credits |
-| Claude | Per input/output token | ~$0.15–0.30 |
+| Apollo.io | Credit-based (search + enrich) | ~20 credits |
+| Hunter.io | 25 free lookups/month, then $34/month | 0–10 lookups |
+| Anthropic Claude | Input/output tokens | ~$0.15–0.30 |
 
-Hard cap of 20 prospects per run to keep costs predictable.
+Hard cap of 20 prospects per run for cost control. The adaptive rate limiter ensures completion within any API tier's rate window.
+
+## Key Features
+
+- **156 industries** across 14 categories (Apollo taxonomy)
+- **11 company size intervals** with automatic segment mapping (SMB / Midmarket / Enterprise)
+- **3 tone options**: Professional, Casual, Simple
+- **Auto vs. Manual** email send types with distinct copy styles
+- **Sender profile** threaded through all generated copy (name, title, Calendly, LinkedIn)
+- **CSV export** for prospect data + sequences
+- **Real-time progress** — prospect table populates before sequence generation begins
+- **Phone polling** — direct dials and mobile numbers stream in asynchronously
+- **Usage tracking** with CTA gating after 3 uses
+
+## Security Considerations
+
+- All API keys are server-side only (Netlify Functions). No secrets reach the client.
+- CORS headers configured in `netlify.toml` — restrict `Access-Control-Allow-Origin` to your domain in production.
+- Phone webhook data stored in `/tmp/` (ephemeral, cleared on function cold start). No persistent PII storage.
+- No database. No user accounts. Stateless architecture.
 
 ## License
 
-Proprietary — mantyl.ai. All rights reserved.
+Proprietary — [mantyl.ai](https://mantyl.ai). All rights reserved.
+
+See [LICENSE](./LICENSE) for full terms.
