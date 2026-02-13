@@ -265,7 +265,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       </div>
 
       {/* ICP Parameters */}
-      <div className="form-section">
+      <div className="form-section icp-section">
         <h3 className="form-section-title">
           <span className="icon" style={{ background: 'rgba(107,138,219,0.1)', color: '#6B8ADB' }}><SvgIcon name="target" size={16} color="#6B8ADB" /></span>
           ICP Parameters
@@ -400,7 +400,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       </div>
 
       {/* Sequence Settings */}
-      <div className="form-section">
+      <div className="form-section sequence-section">
         <h3 className="form-section-title">
           <span className="icon" style={{ background: 'rgba(155,127,199,0.1)', color: '#9B7FC7' }}><SvgIcon name="zap" size={16} color="#9B7FC7" /></span>
           Sequence Settings

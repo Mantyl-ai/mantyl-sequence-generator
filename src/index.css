@@ -1129,13 +1129,25 @@ body {
   }
 }
 
-/* ===== Sender Section ===== */
+/* ===== Section Accent Borders ===== */
 .sender-section {
   border-left: 3px solid var(--accent-rose);
 }
 
+.icp-section {
+  border-left: 3px solid var(--accent-blue);
+}
+
 .product-section {
   border-left: 3px solid var(--accent-lavender);
+}
+
+.sequence-section {
+  border-left: 3px solid var(--accent-lavender);
+}
+
+.preview-section {
+  border-left: 3px solid var(--accent-rose);
 }
 
 .optional-tag {
