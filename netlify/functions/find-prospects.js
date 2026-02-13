@@ -97,14 +97,14 @@ export async function handler(event) {
       withLinkedin: prospects.filter(p => p.linkedinUrl).length,
       withPhone: prospects.filter(p => p.phone).length,
       enrichedCount,
-      // Show first few prospects' enrichment details for debugging
+      // Show first 3 prospects' full enrichment debug (Step A + Step B results)
       sampleProspects: prospects.slice(0, 3).map(p => ({
         name: p.name,
         email: p.email || '(empty)',
         phone: p.phone || '(empty)',
         linkedin: p.linkedinUrl ? 'yes' : 'no',
         status: p.enrichmentStatus,
-        matchDebug: p._matchDebug || '(no debug)',
+        enrichDebug: p._enrichDebug || '(no debug)',
       })),
     };
 
@@ -173,22 +173,85 @@ async function enrichOnePerson(person, apiKey) {
 
     console.log(`Enriching ${firstName} (id=${personId}) at ${orgName}...`);
 
-    // ── Strategy 1 (PRIMARY): /people/match — this REVEALS emails (costs 1 credit) ──
-    // IMPORTANT: Do NOT pass "id" in the body — passing id causes Apollo to do a
-    // simple lookup (no credit spent, no email reveal). We must match by name+company
-    // so Apollo treats it as an enrichment request that spends a credit to reveal email.
-    let matchPerson = null;
-    let matchDebug = {};
+    // ══════════════════════════════════════════════════════════════════════
+    // TWO-STEP ENRICHMENT (based on Apollo docs):
+    //
+    // Step A: GET /people/{id} → get linkedin_url + full name (free, no credit)
+    // Step B: POST /people/match with linkedin_url → reveal email (1 credit)
+    //
+    // Why: The api_search endpoint returns obfuscated data. The GET endpoint
+    // returns the profile (including linkedin_url) but NOT the email.
+    // The /people/match endpoint with linkedin_url triggers an actual
+    // enrichment that spends 1 credit to reveal the email.
+    //
+    // Phone numbers: Apollo requires a webhook_url and delivers phones
+    // asynchronously. We can't get them synchronously in a serverless function.
+    // ══════════════════════════════════════════════════════════════════════
+
+    let linkedinUrl = '';
+    let fullName = '';
+    let lastName = '';
+    let idPersonData = null;
+    let enrichDebug = { steps: [] };
+
+    // ── Step A: GET /people/{id} to get linkedin_url and full name ──────
+    if (personId) {
+      try {
+        const idResponse = await fetch(`https://api.apollo.io/api/v1/people/${personId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+          },
+        });
+
+        if (idResponse.ok) {
+          const idData = await idResponse.json();
+          idPersonData = idData.person || idData;
+
+          linkedinUrl = idPersonData.linkedin_url || '';
+          fullName = idPersonData.name || '';
+          lastName = idPersonData.last_name || '';
+
+          enrichDebug.steps.push({
+            step: 'A_id_lookup',
+            status: 'ok',
+            gotLinkedin: !!linkedinUrl,
+            gotLastName: !!lastName,
+            rawEmail: idPersonData.email || '(null)',
+            linkedin: linkedinUrl || '(null)',
+          });
+
+          console.log(`Step A for ${firstName}: linkedin="${linkedinUrl}", lastName="${lastName}", rawEmail="${idPersonData.email || ''}"`);
+        } else {
+          enrichDebug.steps.push({ step: 'A_id_lookup', status: idResponse.status });
+          console.warn(`Step A failed for ${firstName}: ${idResponse.status}`);
+        }
+      } catch (idErr) {
+        enrichDebug.steps.push({ step: 'A_id_lookup', error: idErr.message });
+        console.warn(`Step A error for ${firstName}:`, idErr.message);
+      }
+    }
+
+    // ── Step B: POST /people/match with linkedin_url to reveal email ────
+    // Per Apollo docs, linkedin_url is one of the strongest identifiers
+    // and should trigger proper enrichment (email reveal, costs 1 credit)
     try {
       const matchBody = {
         api_key: apiKey,
-        first_name: firstName,
-        organization_name: orgName,
         reveal_personal_emails: true,
-        reveal_phone_number: true,
       };
-      if (domain) matchBody.domain = domain;
-      // Do NOT pass id — it bypasses the credit-based reveal
+
+      // Use linkedin_url as primary identifier (strongest match signal)
+      if (linkedinUrl) {
+        matchBody.linkedin_url = linkedinUrl;
+      } else {
+        // Fallback: use name + company
+        matchBody.first_name = firstName;
+        if (lastName) matchBody.last_name = lastName;
+        matchBody.organization_name = orgName;
+        if (domain) matchBody.domain = domain;
+      }
 
       const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
         method: 'POST',
@@ -201,106 +264,71 @@ async function enrichOnePerson(person, apiKey) {
 
       if (matchResponse.ok) {
         const matchData = await matchResponse.json();
-        matchPerson = matchData.person;
+        const ep = matchData.person;
 
-        // Capture raw response for first person debug
-        matchDebug = {
-          status: matchResponse.status,
-          hasPersonKey: !!matchData.person,
-          rawEmail: matchPerson?.email || '(null)',
-          rawPhone: matchPerson?.phone_number || '(null)',
-          rawPhoneNumbers: matchPerson?.phone_numbers ? JSON.stringify(matchPerson.phone_numbers).slice(0, 200) : '(null)',
-          rawLinkedin: matchPerson?.linkedin_url || '(null)',
-          matchResponseKeys: Object.keys(matchData),
-          personKeys: matchPerson ? Object.keys(matchPerson).slice(0, 20) : [],
-        };
+        enrichDebug.steps.push({
+          step: 'B_match',
+          status: 'ok',
+          hasPerson: !!ep,
+          rawEmail: ep?.email || '(null)',
+          emailIsReal: ep?.email ? isRealEmail(ep.email) : false,
+          matchedBy: linkedinUrl ? 'linkedin_url' : 'name+company',
+          personKeys: ep ? Object.keys(ep).slice(0, 15) : [],
+        });
 
-        if (matchPerson) {
-          const email = isRealEmail(matchPerson.email) ? matchPerson.email : '';
-          const phone = extractPhone(matchPerson);
-          const linkedin = matchPerson.linkedin_url || '';
+        if (ep) {
+          const email = isRealEmail(ep.email) ? ep.email : '';
+          const phone = extractPhone(ep);
+          const linkedin = ep.linkedin_url || linkedinUrl || '';
 
-          console.log(`Match for ${firstName}: email="${email}", linkedin="${linkedin}", phone="${phone}", raw_email="${matchPerson.email || ''}", matchBody=${JSON.stringify(matchBody)}`);
+          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", linkedin="${linkedin}", phone="${phone}"`);
 
-          if (email || linkedin) {
-            return {
-              name: matchPerson.name || `${matchPerson.first_name || firstName} ${matchPerson.last_name || ''}`.trim() || 'Unknown',
-              title: matchPerson.title || person.title || '',
-              company: (matchPerson.organization || {}).name || orgName || '',
-              email: email,
-              phone: phone,
-              linkedinUrl: linkedin,
-              location: formatLocation(matchPerson) || '',
-              companyDomain: (matchPerson.organization || {}).primary_domain || domain || '',
-              companyIndustry: (matchPerson.organization || {}).industry || org.industry || '',
-              companySize: (matchPerson.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
-              enrichmentStatus: email ? (phone ? 'enriched' : 'partial') : 'partial',
-              _matchDebug: matchDebug,
-            };
-          }
+          return {
+            name: ep.name || fullName || `${ep.first_name || firstName} ${ep.last_name || lastName}`.trim() || 'Unknown',
+            title: ep.title || person.title || '',
+            company: (ep.organization || {}).name || orgName || '',
+            email: email,
+            phone: phone,
+            linkedinUrl: linkedin,
+            location: formatLocation(ep) || '',
+            companyDomain: (ep.organization || {}).primary_domain || domain || '',
+            companyIndustry: (ep.organization || {}).industry || org.industry || '',
+            companySize: (ep.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
+            enrichmentStatus: email ? 'enriched' : (linkedin ? 'partial' : 'minimal'),
+            _enrichDebug: enrichDebug,
+          };
         } else {
-          console.warn(`Match for ${firstName}: no match (null person)`);
-          matchDebug.note = 'null person returned';
+          console.warn(`Step B for ${firstName}: no person returned`);
         }
       } else {
         const errText = await matchResponse.text().catch(() => '');
-        console.warn(`Match failed for ${firstName}: ${matchResponse.status} ${errText.slice(0, 200)}`);
-        matchDebug = { status: matchResponse.status, error: errText.slice(0, 200) };
+        enrichDebug.steps.push({ step: 'B_match', status: matchResponse.status, error: errText.slice(0, 200) });
+        console.warn(`Step B failed for ${firstName}: ${matchResponse.status} ${errText.slice(0, 200)}`);
       }
     } catch (matchErr) {
-      console.warn(`Match error for ${firstName}:`, matchErr.message);
-      matchDebug = { error: matchErr.message };
+      enrichDebug.steps.push({ step: 'B_match', error: matchErr.message });
+      console.warn(`Step B error for ${firstName}:`, matchErr.message);
     }
 
-    // ── Strategy 2 (FALLBACK): GET /people/{id} — gets profile data but may NOT reveal email ──
-    // Use this for LinkedIn URL, phone, and other profile data when match fails
-    if (personId) {
-      try {
-        const idResponse = await fetch(`https://api.apollo.io/api/v1/people/${personId}?reveal_personal_emails=true&reveal_phone_number=true`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-          },
-        });
-
-        if (idResponse.ok) {
-          const idData = await idResponse.json();
-          const ep = idData.person || idData;
-
-          if (ep) {
-            const email = isRealEmail(ep.email) ? ep.email : '';
-            const phone = extractPhone(ep);
-            const linkedin = ep.linkedin_url || '';
-
-            console.log(`ID lookup for ${firstName}: email="${email}", linkedin="${linkedin}", phone="${phone}", raw_email="${ep.email || ''}"`);
-
-            if (email || linkedin) {
-              return {
-                name: ep.name || `${ep.first_name || firstName} ${ep.last_name || ''}`.trim() || 'Unknown',
-                title: ep.title || person.title || '',
-                company: (ep.organization || {}).name || orgName || '',
-                email: email,
-                phone: phone,
-                linkedinUrl: linkedin,
-                location: formatLocation(ep) || '',
-                companyDomain: (ep.organization || {}).primary_domain || domain || '',
-                companyIndustry: (ep.organization || {}).industry || org.industry || '',
-                companySize: (ep.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
-                enrichmentStatus: email ? (phone ? 'enriched' : 'partial') : 'partial',
-              };
-            }
-          }
-          console.warn(`ID lookup for ${firstName}: person found but no real contact data`);
-        } else {
-          console.warn(`ID lookup failed for ${firstName}: ${idResponse.status}`);
-        }
-      } catch (idErr) {
-        console.warn(`ID lookup error for ${firstName}:`, idErr.message);
-      }
+    // ── Fallback: return ID lookup data if available, else search data ──
+    if (idPersonData) {
+      const linkedin = idPersonData.linkedin_url || '';
+      return {
+        name: idPersonData.name || fullName || firstName || 'Unknown',
+        title: idPersonData.title || person.title || '',
+        company: (idPersonData.organization || {}).name || orgName || '',
+        email: '', // no revealed email available
+        phone: '',
+        linkedinUrl: linkedin,
+        location: formatLocation(idPersonData) || '',
+        companyDomain: (idPersonData.organization || {}).primary_domain || domain || '',
+        companyIndustry: (idPersonData.organization || {}).industry || org.industry || '',
+        companySize: (idPersonData.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
+        enrichmentStatus: linkedin ? 'partial' : 'minimal',
+        _enrichDebug: enrichDebug,
+      };
     }
 
-    // Fallback: return what we have from search (limited data)
     console.warn(`All enrichment failed for ${firstName} — returning search-only data`);
     return {
       name: person.name || firstName || 'Unknown',
@@ -314,6 +342,7 @@ async function enrichOnePerson(person, apiKey) {
       companyIndustry: org.industry || '',
       companySize: org.estimated_num_employees || '',
       enrichmentStatus: 'minimal',
+      _enrichDebug: enrichDebug,
     };
   } catch (err) {
     console.warn(`Enrichment error for ${person.first_name || 'unknown'}:`, err.message);
