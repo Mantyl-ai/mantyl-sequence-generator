@@ -228,12 +228,14 @@ export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
         const updated = prospects.map(p => {
           if (p.phone) return p; // Already has phone
 
-          // Try matching by various keys
-          const nameKey = `name:${(p.name || '').toLowerCase()}`;
+          // Try matching by various keys — Apollo ID is most reliable
+          // (webhook payload only has person ID, not name/email/linkedin)
+          const idKey = p.apolloId ? `id:${p.apolloId}` : '';
           const emailKey = `email:${(p.email || '').toLowerCase()}`;
           const linkedinKey = `linkedin:${p.linkedinUrl || ''}`;
+          const nameKey = `name:${(p.name || '').toLowerCase()}`;
 
-          const match = phones[emailKey] || phones[linkedinKey] || phones[nameKey] || null;
+          const match = (idKey && phones[idKey]) || phones[emailKey] || phones[linkedinKey] || phones[nameKey] || null;
           const phone = match?.phone || (typeof match === 'string' ? match : '');
 
           if (phone) {

@@ -319,6 +319,7 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
           console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", phone="${phone}", waterfall=${JSON.stringify(waterfallStatus)}`);
 
           return {
+            apolloId: ep.id || personId, // Apollo person ID for phone webhook matching
             name: ep.name || fullName || `${ep.first_name || firstName} ${ep.last_name || lastName}`.trim() || 'Unknown',
             title: ep.title || person.title || '',
             company: (ep.organization || {}).name || orgName || '',
