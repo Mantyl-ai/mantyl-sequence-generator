@@ -214,7 +214,7 @@ export default function App() {
           <div className="hero-chips">
             <span className="hero-chip"><span className="chip-dot" />270M+ contacts</span>
             <span className="hero-chip"><span className="chip-dot" />3 channels</span>
-            <span className="hero-chip"><span className="chip-dot" />&lt;60s generation</span>
+            <span className="hero-chip"><span className="chip-dot" />Waterfall verified</span>
           </div>
         </div>
       </section>
