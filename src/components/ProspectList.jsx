@@ -108,10 +108,13 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                 <td style={{ textAlign: 'center' }}>
                   {p.emailStatus ? (
                     <span
-                      className={`email-status-badge ${p.emailStatus}`}
-                      title={`Email: ${p.emailStatus}`}
+                      className={`email-status-badge ${p.emailStatus.replace('hunter_', '').replace('pattern_', '')}`}
+                      title={`Email: ${p.emailStatus}${p.emailSource ? ` (${p.emailSource})` : ''}`}
                     >
-                      {p.emailStatus === 'verified' ? '✓' : p.emailStatus === 'guessed' ? '~' : '?'}
+                      {(p.emailStatus === 'verified' || p.emailStatus === 'hunter_verified') ? '✓'
+                        : (p.emailStatus === 'guessed' || p.emailStatus === 'hunter_guessed') ? '~'
+                        : p.emailStatus === 'pattern_guessed' ? '~'
+                        : '?'}
                     </span>
                   ) : p.email ? (
                     <span className="email-status-badge" title="Status unknown" style={{ background: '#f1f5f9', color: '#94a3b8', border: '1px solid #e2e8f0' }}>?</span>

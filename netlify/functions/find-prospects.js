@@ -139,6 +139,18 @@ export async function handler(event) {
       }
     }
 
+    // ── Step 4: Email pattern guessing for any remaining gaps ───────────
+    // When both Apollo and Hunter fail, construct an email from the most
+    // common corporate pattern: first.last@domain.com
+    // Also tries: flast@domain.com if we know the company uses that pattern.
+    // Uses Hunter's Email Verifier (free: 50 verifications/month) to check.
+    const stillMissingEmail = prospects.filter(p => !p.email && p.companyDomain);
+    if (stillMissingEmail.length > 0) {
+      const patternResults = await guessEmailPatterns(prospects, HUNTER_API_KEY);
+      console.log(`[Pattern] Guessed ${patternResults.found}/${patternResults.attempted} emails from patterns`);
+      debugInfo.patternStats = patternResults;
+    }
+
     return respond(200, {
       prospects,
       total: prospects.length,
@@ -670,6 +682,128 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
   }
 
   return { attempted, found };
+}
+
+// ── Email pattern guessing (Step 4 fallback) ─────────────────────────
+// When Apollo and Hunter both fail, construct emails from common patterns.
+// Strategy:
+//   1. Look at emails we DID find for the same domain → infer the pattern
+//   2. If no pattern found, try the most common corporate patterns
+//   3. Optionally verify via Hunter Email Verifier (free: 50/month)
+//
+// Common corporate email patterns (ordered by frequency):
+//   first.last@domain.com  (~55% of companies)
+//   first@domain.com       (~15%)
+//   flast@domain.com       (~12%)
+//   firstl@domain.com      (~8%)
+//   first_last@domain.com  (~5%)
+//   last.first@domain.com  (~3%)
+async function guessEmailPatterns(prospects, hunterApiKey) {
+  const needsEmail = prospects.filter(p => !p.email && p.companyDomain);
+  if (needsEmail.length === 0) return { attempted: 0, found: 0 };
+
+  // Step 1: Learn patterns from emails we already have (same domain)
+  const domainPatterns = {};
+  for (const p of prospects) {
+    if (!p.email || !p.companyDomain) continue;
+    const pattern = detectPattern(p.email, p.name, p.companyDomain);
+    if (pattern) {
+      domainPatterns[p.companyDomain.toLowerCase()] = pattern;
+    }
+  }
+
+  let found = 0;
+  let attempted = 0;
+
+  for (const prospect of needsEmail) {
+    attempted++;
+    const domain = prospect.companyDomain.toLowerCase();
+    const nameParts = (prospect.name || '').split(' ');
+    const firstName = (nameParts[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+    const lastName = (nameParts.slice(1).join(' ') || '').toLowerCase().replace(/[^a-z]/g, '');
+
+    if (!firstName || !lastName || !domain) continue;
+
+    // Use known pattern for this domain, or default to first.last
+    const knownPattern = domainPatterns[domain];
+    let guessedEmail = '';
+
+    if (knownPattern === 'first.last') {
+      guessedEmail = `${firstName}.${lastName}@${domain}`;
+    } else if (knownPattern === 'flast') {
+      guessedEmail = `${firstName[0]}${lastName}@${domain}`;
+    } else if (knownPattern === 'first') {
+      guessedEmail = `${firstName}@${domain}`;
+    } else if (knownPattern === 'firstl') {
+      guessedEmail = `${firstName}${lastName[0]}@${domain}`;
+    } else if (knownPattern === 'first_last') {
+      guessedEmail = `${firstName}_${lastName}@${domain}`;
+    } else {
+      // Default: try first.last (most common pattern globally)
+      guessedEmail = `${firstName}.${lastName}@${domain}`;
+    }
+
+    // Try to verify with Hunter if we have an API key
+    let verified = false;
+    if (hunterApiKey) {
+      try {
+        const params = new URLSearchParams({
+          email: guessedEmail,
+          api_key: hunterApiKey,
+        });
+        const res = await fetch(`https://api.hunter.io/v2/email-verifier?${params}`);
+
+        if (res.ok) {
+          const data = await res.json();
+          const status = data?.data?.status; // "valid", "invalid", "accept_all", "webmail", "disposable", "unknown"
+          const score = data?.data?.score || 0;
+
+          if (status === 'valid' || (status === 'accept_all' && score >= 50)) {
+            verified = true;
+          } else if (status === 'invalid') {
+            console.log(`[Pattern] ${guessedEmail} is invalid — skipping`);
+            continue;
+          }
+          // "accept_all" means the server accepts any email — still use it but mark as guessed
+        } else if (res.status === 429 || res.status === 402) {
+          console.warn('[Pattern] Hunter verifier quota hit — using unverified patterns');
+          // Continue without verification
+        }
+
+        await new Promise(r => setTimeout(r, 200));
+      } catch (err) {
+        console.warn(`[Pattern] Verify error for ${guessedEmail}:`, err.message);
+      }
+    }
+
+    // Assign the guessed email
+    prospect.email = guessedEmail;
+    prospect.emailStatus = verified ? 'verified' : 'pattern_guessed';
+    prospect.emailSource = 'pattern';
+    prospect.enrichmentStatus = prospect.linkedinUrl ? 'enriched' : 'partial';
+    found++;
+    console.log(`[Pattern] ${verified ? 'Verified' : 'Guessed'} email for ${prospect.name}: ${guessedEmail} (pattern: ${knownPattern || 'first.last'})`);
+  }
+
+  return { attempted, found };
+}
+
+// Detect which email pattern a company uses based on a known email + name
+function detectPattern(email, name, domain) {
+  if (!email || !name || !domain) return null;
+  const local = email.split('@')[0].toLowerCase();
+  const nameParts = (name || '').split(' ');
+  const first = (nameParts[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+  const last = (nameParts.slice(1).join(' ') || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (!first || !last) return null;
+
+  if (local === `${first}.${last}`) return 'first.last';
+  if (local === `${first[0]}${last}`) return 'flast';
+  if (local === first) return 'first';
+  if (local === `${first}${last[0]}`) return 'firstl';
+  if (local === `${first}_${last}`) return 'first_last';
+  if (local === `${last}.${first}`) return 'last.first';
+  return null;
 }
 
 // ── Enrichment status helper ─────────────────────────────────────────
