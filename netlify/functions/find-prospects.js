@@ -65,6 +65,23 @@ export async function handler(event) {
       throw new Error('Apollo API returned an unexpected data structure');
     }
 
+    // Log first person to understand the raw data structure
+    if (rawPeople.length > 0) {
+      const sample = rawPeople[0];
+      console.log(`Apollo search returned ${rawPeople.length} people. Sample fields for "${sample.name || sample.first_name}":`,
+        JSON.stringify({
+          email: sample.email,
+          linkedin_url: sample.linkedin_url,
+          phone_numbers: sample.phone_numbers,
+          phone_number: sample.phone_number,
+          sanitized_phone: sample.sanitized_phone,
+          organization: sample.organization ? { name: sample.organization.name, primary_domain: sample.organization.primary_domain } : null,
+        })
+      );
+    } else {
+      console.warn('Apollo search returned 0 people');
+    }
+
     // ── Step 2: Enrich each person via Apollo Match (1 credit/person) ─
     // The search endpoint doesn't return email/phone/linkedin.
     // We call /people/match for each person to get contact details.
@@ -122,12 +139,16 @@ async function enrichOnePerson(person, apiKey) {
     const lastName = person.last_name || '';
     const domain = org.primary_domain || org.website_url || '';
 
-    // Also try to get email directly from the search result
+    // Extract whatever data the search endpoint already gave us
     const searchEmail = person.email || '';
     const searchLinkedin = person.linkedin_url || '';
-    const searchPhone = person.phone_number || person.sanitized_phone || '';
+    // Apollo search returns phone_numbers as array, or sometimes phone_number
+    const searchPhone = extractPhone(person);
 
-    // Call Apollo People Match endpoint to get contact details
+    // Log what we got from search (first person only for brevity)
+    console.log(`Search data for ${firstName} ${lastName}: email="${searchEmail}", linkedin="${searchLinkedin}", phone="${searchPhone}"`);
+
+    // Call Apollo People Match endpoint to get contact details (1 credit/person)
     const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
       method: 'POST',
       headers: {
@@ -135,6 +156,7 @@ async function enrichOnePerson(person, apiKey) {
         'x-api-key': apiKey,
       },
       body: JSON.stringify({
+        api_key: apiKey,
         first_name: firstName,
         last_name: lastName,
         organization_name: org.name || person.organization_name || '',
@@ -145,41 +167,87 @@ async function enrichOnePerson(person, apiKey) {
 
     if (matchResponse.ok) {
       const matchData = await matchResponse.json();
-      const enrichedPerson = matchData.person || matchData;
+      const enrichedPerson = matchData.person;
 
-      // Log what we got back for debugging
-      const gotEmail = !!(enrichedPerson.email);
-      const gotLinkedin = !!(enrichedPerson.linkedin_url);
-      console.log(`Enrichment for ${firstName} ${lastName}: email=${gotEmail}, linkedin=${gotLinkedin}, status=${matchResponse.status}`);
+      // Log raw enrichment result
+      if (!enrichedPerson) {
+        console.warn(`Enrichment for ${firstName} ${lastName}: no match found (person is null)`);
+      } else {
+        console.log(`Enrichment for ${firstName} ${lastName}: email="${enrichedPerson.email || ''}", linkedin="${enrichedPerson.linkedin_url || ''}", phones=${JSON.stringify(enrichedPerson.phone_numbers || [])}`);
+      }
+
+      // If match returned null/empty person, fall back to search data
+      if (!enrichedPerson) {
+        return buildProspectFromSearch(person, searchEmail, searchLinkedin, searchPhone);
+      }
+
+      // Extract phone from enriched person (phone_numbers is an array)
+      const enrichedPhone = extractPhone(enrichedPerson);
 
       return {
         name: enrichedPerson.name || person.name || `${firstName} ${lastName}`.trim() || 'Unknown',
         title: enrichedPerson.title || person.title || person.headline || '',
         company: (enrichedPerson.organization || {}).name || org.name || person.organization_name || '',
         email: enrichedPerson.email || searchEmail || '',
-        phone: enrichedPerson.phone_number || enrichedPerson.sanitized_phone || searchPhone || '',
+        phone: enrichedPhone || searchPhone || '',
         linkedinUrl: enrichedPerson.linkedin_url || searchLinkedin || '',
         location: formatLocation(enrichedPerson) || formatLocation(person) || '',
         companyDomain: (enrichedPerson.organization || {}).primary_domain || domain || '',
         companyIndustry: (enrichedPerson.organization || {}).industry || org.industry || '',
         companySize: (enrichedPerson.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
-        enrichmentStatus: getEnrichmentStatus(enrichedPerson),
+        enrichmentStatus: getEnrichmentStatus({
+          email: enrichedPerson.email || searchEmail,
+          phone_numbers: enrichedPerson.phone_numbers,
+          linkedin_url: enrichedPerson.linkedin_url || searchLinkedin,
+          sanitized_phone: enrichedPhone || searchPhone,
+        }),
       };
     } else {
       const errText = await matchResponse.text().catch(() => '');
-      console.warn(`Apollo enrichment failed for ${firstName} ${lastName}: ${matchResponse.status} ${errText.slice(0, 200)}`);
-      // Fall back to search-only data — but still use any data from the search endpoint
-      const fallback = normalizeSearchPerson(person);
-      fallback.email = searchEmail || fallback.email;
-      fallback.linkedinUrl = searchLinkedin || fallback.linkedinUrl;
-      fallback.phone = searchPhone || fallback.phone;
-      if (fallback.email || fallback.linkedinUrl) fallback.enrichmentStatus = 'partial';
-      return fallback;
+      console.warn(`Apollo enrichment failed for ${firstName} ${lastName}: ${matchResponse.status} ${errText.slice(0, 300)}`);
+      return buildProspectFromSearch(person, searchEmail, searchLinkedin, searchPhone);
     }
   } catch (err) {
     console.warn(`Apollo enrichment error for ${person.name || 'unknown'}:`, err.message);
-    return normalizeSearchPerson(person);
+    const searchEmail = person.email || '';
+    const searchLinkedin = person.linkedin_url || '';
+    const searchPhone = extractPhone(person);
+    return buildProspectFromSearch(person, searchEmail, searchLinkedin, searchPhone);
   }
+}
+
+// ── Extract phone from Apollo person object ──────────────────────────
+// Apollo returns phones in different formats:
+//   - phone_numbers: [{ sanitized_number: "+1...", type: "work_direct" }]
+//   - phone_number: "+1..." (sometimes)
+//   - sanitized_phone: "+1..." (sometimes)
+function extractPhone(person) {
+  if (!person) return '';
+  // Try phone_numbers array first (most common Apollo format)
+  if (Array.isArray(person.phone_numbers) && person.phone_numbers.length > 0) {
+    return person.phone_numbers[0].sanitized_number || person.phone_numbers[0].number || '';
+  }
+  // Fallback to flat fields
+  return person.phone_number || person.sanitized_phone || '';
+}
+
+// ── Build prospect from search-only data ─────────────────────────────
+function buildProspectFromSearch(person, searchEmail, searchLinkedin, searchPhone) {
+  const org = person.organization || {};
+  const hasContact = !!(searchEmail || searchLinkedin);
+  return {
+    name: person.name || `${person.first_name || ''} ${person.last_name || ''}`.trim() || 'Unknown',
+    title: person.title || person.headline || '',
+    company: org.name || person.organization_name || '',
+    email: searchEmail || '',
+    phone: searchPhone || '',
+    linkedinUrl: searchLinkedin || '',
+    location: formatLocation(person),
+    companyDomain: org.primary_domain || org.website_url || '',
+    companyIndustry: org.industry || '',
+    companySize: org.estimated_num_employees || '',
+    enrichmentStatus: hasContact ? 'partial' : 'minimal',
+  };
 }
 
 // ── Format location from person object ──────────────────────────────
