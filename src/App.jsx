@@ -119,47 +119,72 @@ export default function App() {
             AI-Powered
           </span>
           <a href={CALENDLY_URL} target="_blank" rel="noopener noreferrer" className="header-cta-btn">
-            Book a Demo
+            Book Now
           </a>
         </div>
       </header>
 
       {/* ── Hero Section ────────────────────────────────── */}
       <section className="hero">
-        <div className="hero-particles">
-          <div className="particle p1" />
-          <div className="particle p2" />
-          <div className="particle p3" />
-          <div className="particle p4" />
-          <div className="particle p5" />
+        {/* Animated gradient mesh background */}
+        <div className="hero-mesh" />
+        <div className="hero-mesh-2" />
+
+        {/* Floating orbs */}
+        <div className="hero-orbs">
+          <div className="orb orb-1" />
+          <div className="orb orb-2" />
+          <div className="orb orb-3" />
+          <div className="orb orb-4" />
         </div>
+
+        {/* Grid pattern overlay */}
+        <div className="hero-grid-pattern" />
+
+        {/* Glow effects */}
         <div className="hero-glow" />
+        <div className="hero-glow-2" />
+
         <div className="hero-content">
           <div className="hero-eyebrow">
-            <span className="eyebrow-dot" />
-            Outbound Automation Engine
+            <span className="eyebrow-pill">
+              <span className="eyebrow-pulse" />
+              AI Agent
+            </span>
+            <span className="eyebrow-divider">·</span>
+            Outbound Automation
           </div>
           <h1>
-            Define Your ICP.<br />
-            <span className="hero-gradient-text">We Generate the Sequences.</span>
+            Your ICP. Our AI.
+            <br />
+            <span className="hero-gradient-text">Sequences in Seconds.</span>
           </h1>
           <p className="hero-subtitle">
-            Enter your ideal customer profile, and our AI finds real prospects, enriches their data, and writes personalized multi-channel sequences — ready to launch.
+            Define your ideal customer profile — our AI agent finds real prospects, enriches contact data, and writes personalized multi-channel sequences ready to launch.
           </p>
           <div className="hero-stats">
             <div className="hero-stat">
-              <span className="stat-number">270M+</span>
-              <span className="stat-label">Contacts</span>
+              <span className="stat-icon">🌐</span>
+              <div className="stat-text">
+                <span className="stat-number">270M+</span>
+                <span className="stat-label">Contacts</span>
+              </div>
             </div>
             <div className="hero-stat-divider" />
             <div className="hero-stat">
-              <span className="stat-number">3</span>
-              <span className="stat-label">Channels</span>
+              <span className="stat-icon">📡</span>
+              <div className="stat-text">
+                <span className="stat-number">3</span>
+                <span className="stat-label">Channels</span>
+              </div>
             </div>
             <div className="hero-stat-divider" />
             <div className="hero-stat">
-              <span className="stat-number">&lt;60s</span>
-              <span className="stat-label">Generation</span>
+              <span className="stat-icon">⚡</span>
+              <div className="stat-text">
+                <span className="stat-number">&lt;60s</span>
+                <span className="stat-label">Generation</span>
+              </div>
             </div>
           </div>
         </div>

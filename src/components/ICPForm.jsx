@@ -82,9 +82,9 @@ const EMPLOYEE_SIZES = [
 ]
 
 const COMPANY_SEGMENTS = [
-  { label: 'SMB', desc: '1–200 employees' },
-  { label: 'Midmarket', desc: '201–1,000 employees' },
-  { label: 'Enterprise', desc: '1,001+ employees' },
+  { label: 'SMB' },
+  { label: 'Midmarket' },
+  { label: 'Enterprise' },
 ]
 
 const GEOGRAPHY_GROUPS = {
@@ -272,10 +272,8 @@ export default function ICPForm({ onSubmit, isLoading }) {
                   type="button"
                   className={`segment-pill ${form.companySegment === seg.label ? 'active' : ''}`}
                   onClick={() => toggleSegment(seg.label)}
-                  title={seg.desc}
                 >
                   {seg.label}
-                  <span className="segment-pill-desc">{seg.desc}</span>
                 </button>
               ))}
             </div>
