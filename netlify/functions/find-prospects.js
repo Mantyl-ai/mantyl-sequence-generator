@@ -28,7 +28,7 @@ export async function handler(event) {
     // This endpoint does NOT consume credits (search is free)
     const apolloFilters = buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack });
 
-    const apolloResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
+    const apolloResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
