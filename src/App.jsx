@@ -51,8 +51,9 @@ export default function App() {
 
       setProspects(prospectData.prospects)
 
-      setLoadingMessage(`Writing personalized copy for ${prospectData.prospects.length} prospects...`)
-      setLoadingSub('Claude is generating unique messages for each touchpoint')
+      const totalProspects = prospectData.prospects.length
+      setLoadingMessage(`Writing personalized copy for ${totalProspects} prospects...`)
+      setLoadingSub(`Generating sequences: 0 of ${totalProspects} complete`)
 
       const seqData = await generateSequence({
         prospects: prospectData.prospects,
@@ -73,6 +74,8 @@ export default function App() {
           linkedin: form.senderLinkedin,
           calendly: form.senderCalendly,
         },
+      }, (completed, total) => {
+        setLoadingSub(`Generating sequences: ${completed} of ${total} complete`)
       })
 
       setSequences(seqData.sequences || [])
