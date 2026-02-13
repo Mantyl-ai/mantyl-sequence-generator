@@ -2,7 +2,7 @@ export function exportProspectsCSV(prospects, sequences) {
   if (!prospects || prospects.length === 0) return;
 
   const headers = [
-    'Name', 'Title', 'Company', 'Email', 'Email Status', 'Phone', 'LinkedIn URL',
+    'Name', 'Title', 'Company', 'Email', 'Email Status', 'Phone', 'Phone Type', 'LinkedIn URL',
   ];
 
   // If sequences exist, add sequence columns
@@ -23,6 +23,7 @@ export function exportProspectsCSV(prospects, sequences) {
       p.email || '',
       p.emailStatus || '',
       p.phone || '',
+      p.phoneType === 'work_direct' ? 'Direct' : p.phoneType === 'mobile' ? 'Mobile' : (p.phoneType || ''),
       p.linkedinUrl || '',
     ];
 

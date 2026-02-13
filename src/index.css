@@ -2115,6 +2115,29 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ===== Phone Type Badge ===== */
+.phone-type-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.phone-type-badge.work_direct {
+  background: rgba(107, 138, 219, 0.12);
+  color: #6B8ADB;
+  border: 1px solid rgba(107, 138, 219, 0.25);
+}
+.phone-type-badge.mobile {
+  background: rgba(155, 127, 199, 0.12);
+  color: #9B7FC7;
+  border: 1px solid rgba(155, 127, 199, 0.25);
+}
+
 /* ===== Data Empty ===== */
 .data-empty {
   font-size: 11px;

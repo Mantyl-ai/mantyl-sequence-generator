@@ -312,11 +312,11 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
 
         if (ep) {
           const email = isRealEmail(ep.email) ? ep.email : '';
-          const phone = extractPhone(ep);
+          const phoneData = extractPhone(ep);
           const linkedin = ep.linkedin_url || linkedinUrl || '';
           const emailStatus = ep.email_status || ''; // "verified", "guessed", "unavailable", etc.
 
-          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", phone="${phone}", waterfall=${JSON.stringify(waterfallStatus)}`);
+          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", phone="${phoneData.number}" (${phoneData.type}), waterfall=${JSON.stringify(waterfallStatus)}`);
 
           return {
             apolloId: ep.id || personId, // Apollo person ID for phone webhook matching
@@ -325,7 +325,8 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
             company: (ep.organization || {}).name || orgName || '',
             email: email,
             emailStatus: emailStatus, // Apollo validation: "verified", "guessed", "unavailable", etc.
-            phone: phone,
+            phone: phoneData.number,
+            phoneType: phoneData.type, // "work_direct" or "mobile"
             linkedinUrl: linkedin,
             location: formatLocation(ep) || '',
             companyDomain: (ep.organization || {}).primary_domain || domain || '',
@@ -401,17 +402,23 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
 
 // ── Extract phone from Apollo person object ──────────────────────────
 // Apollo returns phones in different formats:
-//   - phone_numbers: [{ sanitized_number: "+1...", type: "work_direct" }]
+//   - phone_numbers: [{ sanitized_number: "+1...", type: "work_direct"|"mobile" }]
 //   - phone_number: "+1..." (sometimes)
 //   - sanitized_phone: "+1..." (sometimes)
+// Returns { number, type } where type is "work_direct", "mobile", or ""
 function extractPhone(person) {
-  if (!person) return '';
+  if (!person) return { number: '', type: '' };
   // Try phone_numbers array first (most common Apollo format)
   if (Array.isArray(person.phone_numbers) && person.phone_numbers.length > 0) {
-    return person.phone_numbers[0].sanitized_number || person.phone_numbers[0].number || '';
+    const p = person.phone_numbers[0];
+    return {
+      number: p.sanitized_number || p.number || p.raw_number || '',
+      type: p.type || '', // "work_direct" or "mobile"
+    };
   }
   // Fallback to flat fields
-  return person.phone_number || person.sanitized_phone || '';
+  const num = person.phone_number || person.sanitized_phone || '';
+  return { number: num, type: '' };
 }
 
 // ── Build prospect from search-only data ─────────────────────────────

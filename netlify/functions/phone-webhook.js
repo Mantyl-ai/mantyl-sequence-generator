@@ -107,9 +107,16 @@ export async function handler(event) {
         .filter(p => p.length >= 10);
       const bestPhone = cleanPhones[0] || verifiedPhones[0] || (allPhones[0]?.number) || '';
 
-      console.log(`[phone-webhook] Person "${personName}" (${personId}): ${verifiedPhones.length} verified, ${allPhones.length} total. Best: "${bestPhone}"`);
+      // Determine phone type from flat phone_numbers array if available
+      // Waterfall phones don't have type, but flat phone_numbers do ("work_direct" or "mobile")
+      let phoneType = '';
+      if (flatPhones.length > 0) {
+        phoneType = flatPhones[0].type || '';
+      }
 
-      results.push({ personId, name: personName, email: personEmail, linkedin: personLinkedin, phone: bestPhone, allPhones, verifiedPhones });
+      console.log(`[phone-webhook] Person "${personName}" (${personId}): ${verifiedPhones.length} verified, ${allPhones.length} total. Best: "${bestPhone}" (${phoneType})`);
+
+      results.push({ personId, name: personName, email: personEmail, linkedin: personLinkedin, phone: bestPhone, phoneType, allPhones, verifiedPhones });
     }
 
     // ── Store results in /tmp/ ──
@@ -118,6 +125,7 @@ export async function handler(event) {
     for (const r of results) {
       const entry = {
         phone: r.phone,
+        phoneType: r.phoneType || '',
         allPhones: r.allPhones,
         verifiedPhones: r.verifiedPhones,
         name: r.name,

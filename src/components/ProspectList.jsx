@@ -119,7 +119,14 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                 </td>
                 <td>
                   {p.phone ? (
-                    <span style={{ fontSize: 12 }}>{p.phone}</span>
+                    <span style={{ fontSize: 12 }}>
+                      {p.phone}
+                      {p.phoneType && (
+                        <span className={`phone-type-badge ${p.phoneType}`}>
+                          {p.phoneType === 'work_direct' ? 'Direct' : p.phoneType === 'mobile' ? 'Mobile' : p.phoneType}
+                        </span>
+                      )}
+                    </span>
                   ) : phonePollingActive ? (
                     <span className="data-loading" style={{ fontSize: 11, color: 'var(--accent-blue)', opacity: 0.7 }}>
                       <span className="phone-spinner" />Searching...

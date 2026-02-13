@@ -237,9 +237,10 @@ export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
 
           const match = (idKey && phones[idKey]) || phones[emailKey] || phones[linkedinKey] || phones[nameKey] || null;
           const phone = match?.phone || (typeof match === 'string' ? match : '');
+          const phoneType = match?.phoneType || '';
 
           if (phone) {
-            return { ...p, phone, enrichmentStatus: p.email ? 'enriched' : p.enrichmentStatus };
+            return { ...p, phone, phoneType: phoneType || p.phoneType || '', enrichmentStatus: p.email ? 'enriched' : p.enrichmentStatus };
           }
           return p;
         });
