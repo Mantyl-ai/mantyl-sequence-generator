@@ -212,7 +212,8 @@ export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/get-phones?sessionId=${sessionId}`);
+      // Poll the phone-webhook function directly (handles both POST from Apollo and GET from us)
+      const res = await fetch(`${API_BASE}/phone-webhook/${sessionId}`);
       if (!res.ok) return;
 
       const data = await res.json();
@@ -232,7 +233,8 @@ export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
           const emailKey = `email:${(p.email || '').toLowerCase()}`;
           const linkedinKey = `linkedin:${p.linkedinUrl || ''}`;
 
-          const phone = phones[emailKey] || phones[linkedinKey] || phones[nameKey] || '';
+          const match = phones[emailKey] || phones[linkedinKey] || phones[nameKey] || null;
+          const phone = match?.phone || (typeof match === 'string' ? match : '');
 
           if (phone) {
             return { ...p, phone, enrichmentStatus: p.email ? 'enriched' : p.enrichmentStatus };
