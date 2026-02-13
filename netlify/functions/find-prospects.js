@@ -257,9 +257,10 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
         api_key: apiKey,
         reveal_personal_emails: true,
         reveal_phone_number: true,
-        // Waterfall enrichment: cascade through third-party data providers
-        // for broader coverage on emails and phone numbers
-        run_waterfall_email: true,
+        // Waterfall phone enrichment: cascade through third-party providers (async via webhook)
+        // NOTE: Do NOT enable run_waterfall_email — it makes email delivery async via webhook
+        // instead of returning it in the synchronous response, which breaks our flow.
+        // Emails are returned synchronously by /people/match without waterfall.
         run_waterfall_phone: true,
       };
 
