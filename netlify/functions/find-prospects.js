@@ -1,6 +1,9 @@
 // Netlify Function: Find prospects via Apollo People Search + Enrichment
 // Step 1: Search (free, no credits) → Step 2: Enrich (1 credit/person for email)
+// Step 2b: Request phone reveals via webhook (async, Apollo sends phones to phone-webhook.js)
 // Optional Step 3: Clay webhook enrichment for additional data
+import crypto from 'crypto';
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
@@ -17,6 +20,14 @@ export async function handler(event) {
         'Get your free API key at app.apollo.io → Settings → Integrations → API Keys.'
     });
   }
+
+  // Generate session ID for phone webhook tracking
+  const sessionId = crypto.randomUUID();
+
+  // Build webhook URL for async phone delivery
+  // Netlify sets URL env var automatically (e.g., https://tools.mantyl.ai)
+  const siteUrl = process.env.URL || 'https://tools.mantyl.ai';
+  const phoneWebhookUrl = `${siteUrl}/.netlify/functions/phone-webhook?sessionId=${sessionId}`;
 
   try {
     const body = JSON.parse(event.body);
@@ -87,7 +98,7 @@ export async function handler(event) {
     // ── Step 2: Enrich each person via Apollo (ID lookup + match fallback) ─
     // The api_search endpoint returns obfuscated data (no email/phone/linkedin).
     // We use the person ID to fetch full details, then fall back to /people/match.
-    let prospects = await enrichProspects(rawPeople, APOLLO_API_KEY);
+    let prospects = await enrichProspects(rawPeople, APOLLO_API_KEY, phoneWebhookUrl);
 
     // Add enrichment stats to debug
     const enrichedCount = prospects.filter(p => p.email || p.linkedinUrl).length;
@@ -124,6 +135,7 @@ export async function handler(event) {
       prospects,
       total: prospects.length,
       source: CLAY_WEBHOOK_URL ? 'apollo+clay' : 'apollo',
+      sessionId, // For phone polling — frontend uses this to check for async phone data
       _debug: debugInfo,
     });
 
@@ -135,14 +147,14 @@ export async function handler(event) {
 
 // ── Apollo Enrichment — get email, phone, LinkedIn for each person ───
 // Batches requests (5 at a time) to avoid Apollo rate limits when enriching 20 people
-async function enrichProspects(rawPeople, apiKey) {
+async function enrichProspects(rawPeople, apiKey, phoneWebhookUrl) {
   const BATCH_SIZE = 5;
   const BATCH_DELAY = 1000; // 1s between batches to avoid rate limits
   const results = [];
 
   for (let i = 0; i < rawPeople.length; i += BATCH_SIZE) {
     const batch = rawPeople.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.all(batch.map(person => enrichOnePerson(person, apiKey)));
+    const batchResults = await Promise.all(batch.map(person => enrichOnePerson(person, apiKey, phoneWebhookUrl)));
     results.push(...batchResults);
 
     // Brief pause between batches (skip after last batch)
@@ -163,7 +175,7 @@ function isRealEmail(email) {
   return email.includes('@') && !email.includes('domain.com');
 }
 
-async function enrichOnePerson(person, apiKey) {
+async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
   try {
     const org = person.organization || {};
     const firstName = person.first_name || '';
@@ -240,7 +252,13 @@ async function enrichOnePerson(person, apiKey) {
       const matchBody = {
         api_key: apiKey,
         reveal_personal_emails: true,
+        reveal_phone_number: true,
       };
+
+      // Add webhook URL for async phone delivery (Apollo requires this for phone reveals)
+      if (phoneWebhookUrl) {
+        matchBody.webhook_url = phoneWebhookUrl;
+      }
 
       // Use linkedin_url as primary identifier (strongest match signal)
       if (linkedinUrl) {

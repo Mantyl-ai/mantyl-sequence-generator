@@ -187,6 +187,82 @@ export async function generateSequence(params, onProgress) {
   return { sequences: allSequences, touchpointPlan, partialFailure: hadFailure };
 }
 
+/**
+ * Poll for async phone data from Apollo.
+ * Apollo delivers phone numbers via webhook asynchronously (can take several minutes).
+ * This function polls every `interval`ms for up to `maxDuration`ms.
+ *
+ * @param {string} sessionId - Session ID from find-prospects response
+ * @param {Array} prospects - Current prospects array
+ * @param {Function} onUpdate - Called with updated prospects when new phones arrive
+ * @param {Object} options - { interval: 5000, maxDuration: 120000 }
+ * @returns {Function} cleanup function to stop polling
+ */
+export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
+  const { interval = 5000, maxDuration = 120000 } = options;
+  let stopped = false;
+  let lastCount = 0;
+  const startTime = Date.now();
+
+  const poll = async () => {
+    if (stopped) return;
+    if (Date.now() - startTime > maxDuration) {
+      console.log('[Phone Poll] Max duration reached, stopping');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/get-phones?sessionId=${sessionId}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const phones = data.phones || {};
+      const phoneCount = Object.keys(phones).length;
+
+      if (phoneCount > lastCount) {
+        lastCount = phoneCount;
+        console.log(`[Phone Poll] ${phoneCount} phone entries received`);
+
+        // Match phones to prospects by name, email, or linkedin
+        const updated = prospects.map(p => {
+          if (p.phone) return p; // Already has phone
+
+          // Try matching by various keys
+          const nameKey = `name:${(p.name || '').toLowerCase()}`;
+          const emailKey = `email:${(p.email || '').toLowerCase()}`;
+          const linkedinKey = `linkedin:${p.linkedinUrl || ''}`;
+
+          const phone = phones[emailKey] || phones[linkedinKey] || phones[nameKey] || '';
+
+          if (phone) {
+            return { ...p, phone, enrichmentStatus: p.email ? 'enriched' : p.enrichmentStatus };
+          }
+          return p;
+        });
+
+        const phonesFound = updated.filter(p => p.phone).length;
+        const prevPhones = prospects.filter(p => p.phone).length;
+
+        if (phonesFound > prevPhones) {
+          console.log(`[Phone Poll] Updated ${phonesFound - prevPhones} prospects with phone numbers`);
+          onUpdate(updated);
+        }
+      }
+    } catch (err) {
+      console.warn('[Phone Poll] Error:', err.message);
+    }
+
+    if (!stopped) {
+      setTimeout(poll, interval);
+    }
+  };
+
+  // Start polling after a short delay (give Apollo time to start sending)
+  setTimeout(poll, 3000);
+
+  return () => { stopped = true; };
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

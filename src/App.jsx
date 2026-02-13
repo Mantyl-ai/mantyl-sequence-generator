@@ -3,7 +3,7 @@ import ICPForm from './components/ICPForm'
 import ProspectList from './components/ProspectList'
 import SequenceCopy from './components/SequenceCopy'
 import MantylLoader from './components/MantylLoader'
-import { findProspects, generateSequence } from './utils/apiClient'
+import { findProspects, generateSequence, pollForPhones } from './utils/apiClient'
 
 const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
 
@@ -24,6 +24,7 @@ export default function App() {
   const [loadingSub, setLoadingSub] = useState('')
   const [formData, setFormData] = useState(null)
   const [usageCount, setUsageCount] = useState(getUsageCount())
+  const [phonePollingActive, setPhonePollingActive] = useState(false)
 
   const handleSubmit = async (form) => {
     setError(null)
@@ -52,6 +53,25 @@ export default function App() {
 
       foundProspects = prospectData.prospects
       setProspects(foundProspects)
+
+      // Start polling for async phone data from Apollo webhook
+      if (prospectData.sessionId) {
+        setPhonePollingActive(true)
+        const stopPolling = pollForPhones(
+          prospectData.sessionId,
+          foundProspects,
+          (updatedProspects) => {
+            setProspects(updatedProspects)
+            foundProspects = updatedProspects // Update local ref too
+          },
+          { interval: 5000, maxDuration: 120000 } // Poll every 5s for up to 2 min
+        )
+        // Stop polling after 2 min regardless
+        setTimeout(() => {
+          stopPolling()
+          setPhonePollingActive(false)
+        }, 120000)
+      }
 
       const totalProspects = foundProspects.length
       setLoadingMessage(`Writing personalized sequences for ${totalProspects} prospects...`)
@@ -282,6 +302,7 @@ export default function App() {
                 sequences={sequences}
                 selectedIndex={selectedProspect}
                 onSelectProspect={setSelectedProspect}
+                phonePollingActive={phonePollingActive}
               />
               <SequenceCopy
                 sequences={sequences}
