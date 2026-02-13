@@ -22,8 +22,8 @@ export async function handler(event) {
     const body = JSON.parse(event.body);
     const { industry, companySegment, companySize, jobTitles, geography, techStack, otherCriteria, prospectCount = 10 } = body;
 
-    // Cap at 20 prospects
-    const count = Math.min(parseInt(prospectCount) || 10, 20);
+    // Cap at 15 prospects
+    const count = Math.min(parseInt(prospectCount) || 10, 15);
 
     // ── Step 1: Search for people via Apollo (FREE — no credits) ─────
     const apolloFilters = buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack });

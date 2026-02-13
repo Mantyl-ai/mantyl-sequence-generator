@@ -407,9 +407,9 @@ export default function ICPForm({ onSubmit, isLoading }) {
         </h3>
         <div className="form-grid">
           <div className="form-group">
-            <label>Number of Prospects (max 20) <RequiredAsterisk /></label>
+            <label>Number of Prospects (max 15) <RequiredAsterisk /></label>
             <div className="range-wrapper">
-              <input type="range" min="1" max="20" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
+              <input type="range" min="1" max="15" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
               <span className="range-value">{form.prospectCount}</span>
             </div>
           </div>
