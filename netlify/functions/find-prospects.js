@@ -105,13 +105,17 @@ export async function handler(event) {
     debugInfo.enrichmentStats = {
       total: prospects.length,
       withRealEmail: prospects.filter(p => p.email && !p.email.includes('not_unlocked')).length,
+      withVerifiedEmail: prospects.filter(p => p.emailStatus === 'verified').length,
+      withGuessedEmail: prospects.filter(p => p.emailStatus === 'guessed').length,
       withLinkedin: prospects.filter(p => p.linkedinUrl).length,
       withPhone: prospects.filter(p => p.phone).length,
       enrichedCount,
+      waterfallEnabled: true,
       // Show first 3 prospects' full enrichment debug (Step A + Step B results)
       sampleProspects: prospects.slice(0, 3).map(p => ({
         name: p.name,
         email: p.email || '(empty)',
+        emailStatus: p.emailStatus || '(none)',
         phone: p.phone || '(empty)',
         linkedin: p.linkedinUrl ? 'yes' : 'no',
         status: p.enrichmentStatus,
@@ -253,6 +257,10 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
         api_key: apiKey,
         reveal_personal_emails: true,
         reveal_phone_number: true,
+        // Waterfall enrichment: cascade through third-party data providers
+        // for broader coverage on emails and phone numbers
+        run_waterfall_email: true,
+        run_waterfall_phone: true,
       };
 
       // Add webhook URL for async phone delivery (Apollo requires this for phone reveals)
@@ -284,13 +292,18 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
         const matchData = await matchResponse.json();
         const ep = matchData.person;
 
+        // Check for waterfall status in the response (async waterfall results)
+        const waterfallStatus = matchData.waterfall || null;
+
         enrichDebug.steps.push({
           step: 'B_match',
           status: 'ok',
           hasPerson: !!ep,
           rawEmail: ep?.email || '(null)',
           emailIsReal: ep?.email ? isRealEmail(ep.email) : false,
+          emailStatus: ep?.email_status || '(null)',
           matchedBy: linkedinUrl ? 'linkedin_url' : 'name+company',
+          waterfallStatus: waterfallStatus,
           personKeys: ep ? Object.keys(ep).slice(0, 15) : [],
         });
 
@@ -298,14 +311,16 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
           const email = isRealEmail(ep.email) ? ep.email : '';
           const phone = extractPhone(ep);
           const linkedin = ep.linkedin_url || linkedinUrl || '';
+          const emailStatus = ep.email_status || ''; // "verified", "guessed", "unavailable", etc.
 
-          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", linkedin="${linkedin}", phone="${phone}"`);
+          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", phone="${phone}", waterfall=${JSON.stringify(waterfallStatus)}`);
 
           return {
             name: ep.name || fullName || `${ep.first_name || firstName} ${ep.last_name || lastName}`.trim() || 'Unknown',
             title: ep.title || person.title || '',
             company: (ep.organization || {}).name || orgName || '',
             email: email,
+            emailStatus: emailStatus, // Apollo validation: "verified", "guessed", "unavailable", etc.
             phone: phone,
             linkedinUrl: linkedin,
             location: formatLocation(ep) || '',

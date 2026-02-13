@@ -74,6 +74,7 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
               <th>Title</th>
               <th>Company</th>
               <th>Email</th>
+              <th style={{ width: 28, textAlign: 'center' }} title="Email validation status from Apollo">✓</th>
               <th>Phone</th>
               <th>LinkedIn</th>
             </tr>
@@ -103,6 +104,18 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                   ) : (
                     <span className="data-empty">No email</span>
                   )}
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  {p.emailStatus ? (
+                    <span
+                      className={`email-status-badge ${p.emailStatus}`}
+                      title={`Email: ${p.emailStatus}`}
+                    >
+                      {p.emailStatus === 'verified' ? '✓' : p.emailStatus === 'guessed' ? '~' : '?'}
+                    </span>
+                  ) : p.email ? (
+                    <span className="email-status-badge" title="Status unknown" style={{ background: '#f1f5f9', color: '#94a3b8', border: '1px solid #e2e8f0' }}>?</span>
+                  ) : null}
                 </td>
                 <td>
                   {p.phone ? (
