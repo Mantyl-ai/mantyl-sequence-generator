@@ -78,10 +78,17 @@ export default function App() {
         setLoadingSub(`Generating sequences: ${completed} of ${total} complete`)
       })
 
-      setSequences(seqData.sequences || [])
+      const generatedSeqs = seqData.sequences || []
+      setSequences(generatedSeqs)
       setSelectedProspect(0)
       const newCount = incrementUsage()
       setUsageCount(newCount)
+
+      // Show partial-failure warning but still display results
+      if (seqData.partialFailure && generatedSeqs.length < totalProspects) {
+        setError(`Generated ${generatedSeqs.length} of ${totalProspects} sequences. Some prospects timed out — you can retry or write those manually.`)
+      }
+
       setStep('results')
 
       // Scroll to top so user sees results from the beginning
@@ -218,7 +225,7 @@ export default function App() {
                   Try broadening your search — use a wider company size range, fewer job titles, or a larger geography.
                 </p>
               )}
-              {step === 'form' && (error.toLowerCase().includes('api key') || error.toLowerCase().includes('api error') || error.toLowerCase().includes('failed to')) && !error.toLowerCase().includes('no prospects found') && (
+              {step === 'form' && (error.toLowerCase().includes('api key') || error.toLowerCase().includes('not configured')) && (
                 <p style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
                   Check that your API keys are configured in Netlify environment variables.
                 </p>
