@@ -1143,11 +1143,11 @@ body {
 }
 
 .sequence-section {
-  border-left: 3px solid var(--accent-lavender);
+  border-left: 3px solid var(--accent-peach);
 }
 
-.preview-section {
-  border-left: 3px solid var(--accent-rose);
+.preview-section.form-section {
+  border-left: 3px solid #5a6b8a;
 }
 
 .optional-tag {

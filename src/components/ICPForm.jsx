@@ -402,7 +402,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Sequence Settings */}
       <div className="form-section sequence-section">
         <h3 className="form-section-title">
-          <span className="icon" style={{ background: 'rgba(155,127,199,0.1)', color: '#9B7FC7' }}><SvgIcon name="zap" size={16} color="#9B7FC7" /></span>
+          <span className="icon" style={{ background: 'rgba(232,158,108,0.1)', color: '#D4956A' }}><SvgIcon name="zap" size={16} color="#D4956A" /></span>
           Sequence Settings
         </h3>
         <div className="form-grid">
@@ -489,7 +489,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Sequence Structure Preview — redesigned */}
       <div className="form-section preview-section">
         <h3 className="form-section-title" style={{ marginBottom: 16 }}>
-          <span className="icon" style={{ background: 'rgba(212,132,154,0.1)', color: '#D4849A' }}><SvgIcon name="layout" size={16} color="#D4849A" /></span>
+          <span className="icon" style={{ background: 'rgba(90,107,138,0.1)', color: '#5a6b8a' }}><SvgIcon name="layout" size={16} color="#5a6b8a" /></span>
           Sequence Blueprint
           <span className="section-subtitle">— your {form.touchpointCount}-step outbound cadence over {(form.touchpointCount - 1) * form.daySpacing} days</span>
         </h3>
