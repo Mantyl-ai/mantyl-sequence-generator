@@ -28,14 +28,13 @@ export async function handler(event) {
     // ── Step 1: Search for people via Apollo ─────────────────────────
     const apolloFilters = buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack });
 
-    const apolloResponse = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+    const apolloResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
+        'x-api-key': APOLLO_API_KEY,
       },
       body: JSON.stringify({
-        api_key: APOLLO_API_KEY,
         per_page: count,
         page: 1,
         ...apolloFilters,
@@ -153,11 +152,11 @@ async function enrichOnePerson(person, apiKey) {
     console.log(`Search data for ${firstName} ${lastName}: email="${searchEmail}", linkedin="${searchLinkedin}", phone="${searchPhone}"`);
 
     // Call Apollo People Match endpoint to get contact details (1 credit/person)
-    const matchResponse = await fetch('https://api.apollo.io/v1/people/match', {
+    const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
+        'x-api-key': apiKey,
       },
       body: JSON.stringify({
         api_key: apiKey,
