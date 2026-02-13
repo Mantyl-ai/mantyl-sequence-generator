@@ -84,10 +84,20 @@ export async function handler(event) {
       debugInfo = { warning: 'no people returned', responseTopKeys: Object.keys(apolloData) };
     }
 
-    // ── Step 2: Enrich each person via Apollo Match (1 credit/person) ─
-    // The search endpoint doesn't return email/phone/linkedin.
-    // We call /people/match for each person to get contact details.
+    // ── Step 2: Enrich each person via Apollo (ID lookup + match fallback) ─
+    // The api_search endpoint returns obfuscated data (no email/phone/linkedin).
+    // We use the person ID to fetch full details, then fall back to /people/match.
     let prospects = await enrichProspects(rawPeople, APOLLO_API_KEY);
+
+    // Add enrichment stats to debug
+    const enrichedCount = prospects.filter(p => p.email || p.linkedinUrl).length;
+    debugInfo.enrichmentStats = {
+      total: prospects.length,
+      withEmail: prospects.filter(p => p.email).length,
+      withLinkedin: prospects.filter(p => p.linkedinUrl).length,
+      withPhone: prospects.filter(p => p.phone).length,
+      enrichedCount,
+    };
 
     // ── Step 3 (Optional): Additional enrichment via Clay webhook ────
     const CLAY_WEBHOOK_URL = process.env.CLAY_WEBHOOK_URL;
@@ -139,83 +149,134 @@ async function enrichOnePerson(person, apiKey) {
   try {
     const org = person.organization || {};
     const firstName = person.first_name || '';
-    const lastName = person.last_name || '';
+    const personId = person.id || '';
     const domain = org.primary_domain || org.website_url || '';
+    const orgName = org.name || person.organization_name || '';
 
-    // Extract whatever data the search endpoint already gave us
-    const searchEmail = person.email || '';
-    const searchLinkedin = person.linkedin_url || '';
-    // Apollo search returns phone_numbers as array, or sometimes phone_number
-    const searchPhone = extractPhone(person);
+    console.log(`Enriching ${firstName} (id=${personId}) at ${orgName}...`);
 
-    // Log what we got from search (first person only for brevity)
-    console.log(`Search data for ${firstName} ${lastName}: email="${searchEmail}", linkedin="${searchLinkedin}", phone="${searchPhone}"`);
+    // Strategy 1: Use Apollo person ID to get full details (most reliable)
+    if (personId) {
+      try {
+        const idResponse = await fetch(`https://api.apollo.io/api/v1/people/${personId}?reveal_personal_emails=true`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+          },
+        });
 
-    // Call Apollo People Match endpoint to get contact details (1 credit/person)
-    const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({
+        if (idResponse.ok) {
+          const idData = await idResponse.json();
+          const ep = idData.person || idData;
+
+          if (ep && (ep.email || ep.linkedin_url)) {
+            const phone = extractPhone(ep);
+            console.log(`ID lookup for ${firstName}: email="${ep.email || ''}", linkedin="${ep.linkedin_url || ''}", phone="${phone}"`);
+            return {
+              name: ep.name || `${ep.first_name || firstName} ${ep.last_name || ''}`.trim() || 'Unknown',
+              title: ep.title || person.title || '',
+              company: (ep.organization || {}).name || orgName || '',
+              email: ep.email || '',
+              phone: phone,
+              linkedinUrl: ep.linkedin_url || '',
+              location: formatLocation(ep) || '',
+              companyDomain: (ep.organization || {}).primary_domain || domain || '',
+              companyIndustry: (ep.organization || {}).industry || org.industry || '',
+              companySize: (ep.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
+              enrichmentStatus: getEnrichmentStatus(ep),
+            };
+          } else {
+            console.warn(`ID lookup for ${firstName}: person found but no contact data`);
+          }
+        } else {
+          console.warn(`ID lookup failed for ${firstName}: ${idResponse.status}`);
+        }
+      } catch (idErr) {
+        console.warn(`ID lookup error for ${firstName}:`, idErr.message);
+      }
+    }
+
+    // Strategy 2: Try /people/match with first_name + org (no last_name since api_search obfuscates it)
+    try {
+      const matchBody = {
         api_key: apiKey,
         first_name: firstName,
-        last_name: lastName,
-        organization_name: org.name || person.organization_name || '',
-        domain: domain,
+        organization_name: orgName,
         reveal_personal_emails: true,
-      }),
-    });
-
-    if (matchResponse.ok) {
-      const matchData = await matchResponse.json();
-      const enrichedPerson = matchData.person;
-
-      // Log raw enrichment result
-      if (!enrichedPerson) {
-        console.warn(`Enrichment for ${firstName} ${lastName}: no match found (person is null)`);
-      } else {
-        console.log(`Enrichment for ${firstName} ${lastName}: email="${enrichedPerson.email || ''}", linkedin="${enrichedPerson.linkedin_url || ''}", phones=${JSON.stringify(enrichedPerson.phone_numbers || [])}`);
-      }
-
-      // If match returned null/empty person, fall back to search data
-      if (!enrichedPerson) {
-        return buildProspectFromSearch(person, searchEmail, searchLinkedin, searchPhone);
-      }
-
-      // Extract phone from enriched person (phone_numbers is an array)
-      const enrichedPhone = extractPhone(enrichedPerson);
-
-      return {
-        name: enrichedPerson.name || person.name || `${firstName} ${lastName}`.trim() || 'Unknown',
-        title: enrichedPerson.title || person.title || person.headline || '',
-        company: (enrichedPerson.organization || {}).name || org.name || person.organization_name || '',
-        email: enrichedPerson.email || searchEmail || '',
-        phone: enrichedPhone || searchPhone || '',
-        linkedinUrl: enrichedPerson.linkedin_url || searchLinkedin || '',
-        location: formatLocation(enrichedPerson) || formatLocation(person) || '',
-        companyDomain: (enrichedPerson.organization || {}).primary_domain || domain || '',
-        companyIndustry: (enrichedPerson.organization || {}).industry || org.industry || '',
-        companySize: (enrichedPerson.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
-        enrichmentStatus: getEnrichmentStatus({
-          email: enrichedPerson.email || searchEmail,
-          phone_numbers: enrichedPerson.phone_numbers,
-          linkedin_url: enrichedPerson.linkedin_url || searchLinkedin,
-          sanitized_phone: enrichedPhone || searchPhone,
-        }),
       };
-    } else {
-      const errText = await matchResponse.text().catch(() => '');
-      console.warn(`Apollo enrichment failed for ${firstName} ${lastName}: ${matchResponse.status} ${errText.slice(0, 300)}`);
-      return buildProspectFromSearch(person, searchEmail, searchLinkedin, searchPhone);
+      if (domain) matchBody.domain = domain;
+
+      const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
+        body: JSON.stringify(matchBody),
+      });
+
+      if (matchResponse.ok) {
+        const matchData = await matchResponse.json();
+        const ep = matchData.person;
+
+        if (ep && (ep.email || ep.linkedin_url)) {
+          const phone = extractPhone(ep);
+          console.log(`Match for ${firstName}: email="${ep.email || ''}", linkedin="${ep.linkedin_url || ''}", phone="${phone}"`);
+          return {
+            name: ep.name || `${ep.first_name || firstName} ${ep.last_name || ''}`.trim() || 'Unknown',
+            title: ep.title || person.title || '',
+            company: (ep.organization || {}).name || orgName || '',
+            email: ep.email || '',
+            phone: phone,
+            linkedinUrl: ep.linkedin_url || '',
+            location: formatLocation(ep) || '',
+            companyDomain: (ep.organization || {}).primary_domain || domain || '',
+            companyIndustry: (ep.organization || {}).industry || org.industry || '',
+            companySize: (ep.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
+            enrichmentStatus: getEnrichmentStatus(ep),
+          };
+        } else {
+          console.warn(`Match for ${firstName}: ${ep ? 'person found but no contact data' : 'no match (null)'}`);
+        }
+      } else {
+        const errText = await matchResponse.text().catch(() => '');
+        console.warn(`Match failed for ${firstName}: ${matchResponse.status} ${errText.slice(0, 200)}`);
+      }
+    } catch (matchErr) {
+      console.warn(`Match error for ${firstName}:`, matchErr.message);
     }
+
+    // Fallback: return what we have from search (limited data)
+    console.warn(`All enrichment failed for ${firstName} — returning search-only data`);
+    return {
+      name: person.name || firstName || 'Unknown',
+      title: person.title || '',
+      company: orgName || '',
+      email: '',
+      phone: '',
+      linkedinUrl: '',
+      location: '',
+      companyDomain: domain || '',
+      companyIndustry: org.industry || '',
+      companySize: org.estimated_num_employees || '',
+      enrichmentStatus: 'minimal',
+    };
   } catch (err) {
-    console.warn(`Apollo enrichment error for ${person.name || 'unknown'}:`, err.message);
-    const searchEmail = person.email || '';
-    const searchLinkedin = person.linkedin_url || '';
-    const searchPhone = extractPhone(person);
-    return buildProspectFromSearch(person, searchEmail, searchLinkedin, searchPhone);
+    console.warn(`Enrichment error for ${person.first_name || 'unknown'}:`, err.message);
+    return {
+      name: person.first_name || 'Unknown',
+      title: person.title || '',
+      company: (person.organization || {}).name || '',
+      email: '',
+      phone: '',
+      linkedinUrl: '',
+      location: '',
+      companyDomain: '',
+      companyIndustry: '',
+      companySize: '',
+      enrichmentStatus: 'minimal',
+    };
   }
 }
 
