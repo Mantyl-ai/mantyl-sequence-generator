@@ -97,13 +97,14 @@ export async function handler(event) {
       withLinkedin: prospects.filter(p => p.linkedinUrl).length,
       withPhone: prospects.filter(p => p.phone).length,
       enrichedCount,
-      // Show first few prospects' email status for debugging
-      sampleEmails: prospects.slice(0, 3).map(p => ({
+      // Show first few prospects' enrichment details for debugging
+      sampleProspects: prospects.slice(0, 3).map(p => ({
         name: p.name,
         email: p.email || '(empty)',
         phone: p.phone || '(empty)',
         linkedin: p.linkedinUrl ? 'yes' : 'no',
         status: p.enrichmentStatus,
+        matchDebug: p._matchDebug || '(no debug)',
       })),
     };
 
@@ -173,9 +174,11 @@ async function enrichOnePerson(person, apiKey) {
     console.log(`Enriching ${firstName} (id=${personId}) at ${orgName}...`);
 
     // ── Strategy 1 (PRIMARY): /people/match — this REVEALS emails (costs 1 credit) ──
-    // The /people/match endpoint actually unlocks the email, unlike GET /people/{id}
-    // which returns "email_not_unlocked@domain.com" placeholder.
+    // IMPORTANT: Do NOT pass "id" in the body — passing id causes Apollo to do a
+    // simple lookup (no credit spent, no email reveal). We must match by name+company
+    // so Apollo treats it as an enrichment request that spends a credit to reveal email.
     let matchPerson = null;
+    let matchDebug = {};
     try {
       const matchBody = {
         api_key: apiKey,
@@ -185,9 +188,7 @@ async function enrichOnePerson(person, apiKey) {
         reveal_phone_number: true,
       };
       if (domain) matchBody.domain = domain;
-
-      // If we have the Apollo person ID, include it for more accurate matching
-      if (personId) matchBody.id = personId;
+      // Do NOT pass id — it bypasses the credit-based reveal
 
       const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
         method: 'POST',
@@ -202,12 +203,24 @@ async function enrichOnePerson(person, apiKey) {
         const matchData = await matchResponse.json();
         matchPerson = matchData.person;
 
+        // Capture raw response for first person debug
+        matchDebug = {
+          status: matchResponse.status,
+          hasPersonKey: !!matchData.person,
+          rawEmail: matchPerson?.email || '(null)',
+          rawPhone: matchPerson?.phone_number || '(null)',
+          rawPhoneNumbers: matchPerson?.phone_numbers ? JSON.stringify(matchPerson.phone_numbers).slice(0, 200) : '(null)',
+          rawLinkedin: matchPerson?.linkedin_url || '(null)',
+          matchResponseKeys: Object.keys(matchData),
+          personKeys: matchPerson ? Object.keys(matchPerson).slice(0, 20) : [],
+        };
+
         if (matchPerson) {
           const email = isRealEmail(matchPerson.email) ? matchPerson.email : '';
           const phone = extractPhone(matchPerson);
           const linkedin = matchPerson.linkedin_url || '';
 
-          console.log(`Match for ${firstName}: email="${email}", linkedin="${linkedin}", phone="${phone}", raw_email="${matchPerson.email || ''}"`);
+          console.log(`Match for ${firstName}: email="${email}", linkedin="${linkedin}", phone="${phone}", raw_email="${matchPerson.email || ''}", matchBody=${JSON.stringify(matchBody)}`);
 
           if (email || linkedin) {
             return {
@@ -222,17 +235,21 @@ async function enrichOnePerson(person, apiKey) {
               companyIndustry: (matchPerson.organization || {}).industry || org.industry || '',
               companySize: (matchPerson.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
               enrichmentStatus: email ? (phone ? 'enriched' : 'partial') : 'partial',
+              _matchDebug: matchDebug,
             };
           }
         } else {
           console.warn(`Match for ${firstName}: no match (null person)`);
+          matchDebug.note = 'null person returned';
         }
       } else {
         const errText = await matchResponse.text().catch(() => '');
         console.warn(`Match failed for ${firstName}: ${matchResponse.status} ${errText.slice(0, 200)}`);
+        matchDebug = { status: matchResponse.status, error: errText.slice(0, 200) };
       }
     } catch (matchErr) {
       console.warn(`Match error for ${firstName}:`, matchErr.message);
+      matchDebug = { error: matchErr.message };
     }
 
     // ── Strategy 2 (FALLBACK): GET /people/{id} — gets profile data but may NOT reveal email ──
