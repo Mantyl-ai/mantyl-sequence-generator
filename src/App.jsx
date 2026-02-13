@@ -136,25 +136,25 @@ export default function App() {
           <defs>
             <linearGradient id="beam-grad-1" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="rgba(107,138,219,0)" />
-              <stop offset="50%" stopColor="rgba(107,138,219,0.3)" />
+              <stop offset="50%" stopColor="rgba(107,138,219,0.55)" />
               <stop offset="100%" stopColor="rgba(155,127,199,0)" />
             </linearGradient>
             <linearGradient id="beam-grad-2" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="rgba(155,127,199,0)" />
-              <stop offset="50%" stopColor="rgba(212,132,154,0.25)" />
+              <stop offset="50%" stopColor="rgba(212,132,154,0.45)" />
               <stop offset="100%" stopColor="rgba(232,158,108,0)" />
             </linearGradient>
             <linearGradient id="beam-grad-3" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="rgba(232,158,108,0)" />
-              <stop offset="50%" stopColor="rgba(107,138,219,0.2)" />
+              <stop offset="50%" stopColor="rgba(107,138,219,0.4)" />
               <stop offset="100%" stopColor="rgba(155,127,199,0)" />
             </linearGradient>
           </defs>
-          <path className="beam beam-1" d="M-100,180 Q300,80 600,150 T1300,100" stroke="url(#beam-grad-1)" strokeWidth="1" fill="none" />
-          <path className="beam beam-2" d="M-100,220 Q400,120 700,200 T1300,140" stroke="url(#beam-grad-2)" strokeWidth="1" fill="none" />
-          <path className="beam beam-3" d="M-100,140 Q200,200 500,130 T1300,180" stroke="url(#beam-grad-3)" strokeWidth="0.8" fill="none" />
-          <path className="beam beam-4" d="M-100,260 Q350,160 650,240 T1300,170" stroke="url(#beam-grad-1)" strokeWidth="0.6" fill="none" />
-          <path className="beam beam-5" d="M-100,100 Q250,180 550,110 T1300,200" stroke="url(#beam-grad-2)" strokeWidth="0.7" fill="none" />
+          <path className="beam beam-1" d="M-100,180 Q300,80 600,150 T1300,100" stroke="url(#beam-grad-1)" strokeWidth="1.5" fill="none" />
+          <path className="beam beam-2" d="M-100,220 Q400,120 700,200 T1300,140" stroke="url(#beam-grad-2)" strokeWidth="1.5" fill="none" />
+          <path className="beam beam-3" d="M-100,140 Q200,200 500,130 T1300,180" stroke="url(#beam-grad-3)" strokeWidth="1.2" fill="none" />
+          <path className="beam beam-4" d="M-100,260 Q350,160 650,240 T1300,170" stroke="url(#beam-grad-1)" strokeWidth="1" fill="none" />
+          <path className="beam beam-5" d="M-100,100 Q250,180 550,110 T1300,200" stroke="url(#beam-grad-2)" strokeWidth="1" fill="none" />
         </svg>
 
         {/* Dot grid overlay */}
@@ -164,11 +164,11 @@ export default function App() {
           <div className="hero-eyebrow">
             <span className="eyebrow-pill">
               <span className="eyebrow-pulse" />
-              AI Agent
+              AI-Powered
             </span>
           </div>
           <h1>
-            <span className="hero-gradient-text hero-shimmer">Sequences in Seconds.</span>
+            <span className="hero-gradient-text">Sequences in Seconds.</span>
           </h1>
           <p className="hero-subtitle">
             Define your ICP. Our AI finds prospects, enriches data, and writes multi-channel sequences — ready to launch.
@@ -202,7 +202,7 @@ export default function App() {
       <main className="main">
         {error && (
           <div className="error-banner fade-in">
-            <span className="error-icon">⚠️</span>
+            <span className="error-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
             <div>
               <p><strong>Something went wrong:</strong> {error}</p>
               {step === 'form' && (
@@ -238,7 +238,7 @@ export default function App() {
           <>
             {usageCount >= 3 && (
               <div className="usage-limit-banner fade-in">
-                <div className="usage-limit-icon">🎉</div>
+                <div className="usage-limit-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent-peach)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
                 <div className="usage-limit-text">
                   <strong>Thank you for using our tool!</strong>
                   <p>If you're interested in learning more, we'd love to build a custom version tailored to your team's exact workflow, ICP, and messaging.</p>

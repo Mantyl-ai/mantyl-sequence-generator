@@ -144,10 +144,30 @@ const GEOGRAPHY_GROUPS = {
 }
 
 const TONES = [
-  { id: 'professional', label: 'Professional', desc: 'Polished, formal, executive ready', icon: '🎯' },
-  { id: 'casual', label: 'Casual', desc: 'Friendly, conversational, approachable', icon: '💬' },
-  { id: 'simple', label: 'Simple', desc: 'Short, direct, no fluff', icon: '⚡' },
+  { id: 'professional', label: 'Professional', desc: 'Polished, formal, executive ready', icon: 'professional' },
+  { id: 'casual', label: 'Casual', desc: 'Friendly, conversational, approachable', icon: 'casual' },
+  { id: 'simple', label: 'Simple', desc: 'Short, direct, no fluff', icon: 'simple' },
 ]
+
+/* ── Inline SVG Icons ─────────────────────────── */
+const SvgIcon = ({ name, size = 16, color = 'currentColor' }) => {
+  const icons = {
+    user: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+    target: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>,
+    messageSquare: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+    zap: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+    layout: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>,
+    mail: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
+    linkedin: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>,
+    phone: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
+    professional: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+    casual: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+    simple: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+    penTool: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>,
+    cpu: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>,
+  }
+  return icons[name] || null
+}
 
 const RequiredAsterisk = () => <span className="required-asterisk">*</span>
 
@@ -212,7 +232,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Sender Profile */}
       <div className="form-section sender-section">
         <h3 className="form-section-title">
-          <span className="icon" style={{ background: 'rgba(232,158,108,0.1)', color: '#E89E6C' }}>👤</span>
+          <span className="icon" style={{ background: 'rgba(232,158,108,0.1)', color: '#E89E6C' }}><SvgIcon name="user" size={16} color="#E89E6C" /></span>
           Your Profile
           <span className="section-subtitle">— this info signs off your outbound copy</span>
         </h3>
@@ -247,7 +267,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* ICP Parameters */}
       <div className="form-section">
         <h3 className="form-section-title">
-          <span className="icon" style={{ background: 'rgba(107,138,219,0.1)', color: '#6B8ADB' }}>🎯</span>
+          <span className="icon" style={{ background: 'rgba(107,138,219,0.1)', color: '#6B8ADB' }}><SvgIcon name="target" size={16} color="#6B8ADB" /></span>
           ICP Parameters
         </h3>
         <div className="form-grid">
@@ -335,7 +355,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Product & Messaging Context */}
       <div className="form-section product-section">
         <h3 className="form-section-title">
-          <span className="icon" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>💬</span>
+          <span className="icon" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}><SvgIcon name="messageSquare" size={16} color="#22c55e" /></span>
           Product & Messaging
         </h3>
         <div className="form-grid">
@@ -382,7 +402,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Sequence Settings */}
       <div className="form-section">
         <h3 className="form-section-title">
-          <span className="icon" style={{ background: 'rgba(155,127,199,0.1)', color: '#9B7FC7' }}>⚡</span>
+          <span className="icon" style={{ background: 'rgba(155,127,199,0.1)', color: '#9B7FC7' }}><SvgIcon name="zap" size={16} color="#9B7FC7" /></span>
           Sequence Settings
         </h3>
         <div className="form-grid">
@@ -411,14 +431,14 @@ export default function ICPForm({ onSubmit, isLoading }) {
             <label>Channels <RequiredAsterisk /></label>
             <div className="checkbox-group">
               {[
-                { id: 'email', label: '📧 Email' },
-                { id: 'linkedin', label: '💼 LinkedIn' },
-                { id: 'calling', label: '📞 Calling' },
+                { id: 'email', label: 'Email', iconName: 'mail' },
+                { id: 'linkedin', label: 'LinkedIn', iconName: 'linkedin' },
+                { id: 'calling', label: 'Calling', iconName: 'phone' },
               ].map(ch => (
                 <label key={ch.id} className={`checkbox-label ${form.channels.includes(ch.id) ? 'checked' : ''}`}>
                   <input type="checkbox" checked={form.channels.includes(ch.id)} onChange={() => toggleChannel(ch.id)} />
                   <span className="checkbox-icon" />
-                  {ch.label}
+                  <SvgIcon name={ch.iconName} size={14} /> {ch.label}
                 </label>
               ))}
             </div>
@@ -433,7 +453,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
                   className={`tone-btn ${form.tone === t.id ? 'active' : ''}`}
                   onClick={() => update('tone', t.id)}
                 >
-                  <span className="tone-icon">{t.icon}</span>
+                  <span className="tone-icon"><SvgIcon name={t.icon} size={22} /></span>
                   <div className="tone-text">
                     <div className="tone-label">{t.label}</div>
                     <div className="tone-desc">{t.desc}</div>
@@ -447,14 +467,14 @@ export default function ICPForm({ onSubmit, isLoading }) {
               <label>Email Send Type <RequiredAsterisk /></label>
               <div className="send-type-toggle">
                 <button type="button" className={`send-type-btn ${form.emailSendType === 'manual' ? 'active' : ''}`} onClick={() => update('emailSendType', 'manual')}>
-                  <span className="send-type-icon">✍️</span>
+                  <span className="send-type-icon"><SvgIcon name="penTool" size={20} /></span>
                   <div>
                     <div className="send-type-label">Manual Send</div>
                     <div className="send-type-desc">Personal 1:1 emails from your inbox</div>
                   </div>
                 </button>
                 <button type="button" className={`send-type-btn ${form.emailSendType === 'automated' ? 'active' : ''}`} onClick={() => update('emailSendType', 'automated')}>
-                  <span className="send-type-icon">🤖</span>
+                  <span className="send-type-icon"><SvgIcon name="cpu" size={20} /></span>
                   <div>
                     <div className="send-type-label">Automated Send</div>
                     <div className="send-type-desc">Sequenced via Outreach, Salesloft, etc.</div>
@@ -469,7 +489,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Sequence Structure Preview — redesigned */}
       <div className="form-section preview-section">
         <h3 className="form-section-title" style={{ marginBottom: 16 }}>
-          <span className="icon" style={{ background: 'rgba(212,132,154,0.1)', color: '#D4849A' }}>📋</span>
+          <span className="icon" style={{ background: 'rgba(212,132,154,0.1)', color: '#D4849A' }}><SvgIcon name="layout" size={16} color="#D4849A" /></span>
           Sequence Blueprint
           <span className="section-subtitle">— your {form.touchpointCount}-step outbound cadence over {(form.touchpointCount - 1) * form.daySpacing} days</span>
         </h3>
@@ -479,7 +499,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
               <div className="preview-step-day">Day {step.day}</div>
               <div className="preview-step-dot" />
               <div className="preview-step-info">
-                <span className="preview-step-channel">{channelEmoji(step.channel)} {step.channel}</span>
+                <span className="preview-step-channel">{channelIcon(step.channel)} {step.channel}</span>
                 <span className={`preview-step-stage ${step.stage}`}>{step.stage.replace('_', ' ')}</span>
               </div>
             </div>
@@ -501,8 +521,9 @@ export default function ICPForm({ onSubmit, isLoading }) {
   )
 }
 
-function channelEmoji(channel) {
-  return channel === 'email' ? '📧' : channel === 'linkedin' ? '💼' : '📞'
+function channelIcon(channel) {
+  const iconMap = { email: 'mail', linkedin: 'linkedin', calling: 'phone' }
+  return <SvgIcon name={iconMap[channel] || 'mail'} size={12} />
 }
 
 function buildPreviewSteps(count, channels, spacing) {
