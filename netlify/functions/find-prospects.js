@@ -52,7 +52,18 @@ export async function handler(event) {
     }
 
     const apolloData = await apolloResponse.json();
+
+    // Validate Apollo response shape — guard against unexpected API changes
+    if (!apolloData || typeof apolloData !== 'object') {
+      console.error('Apollo returned non-object response:', typeof apolloData);
+      throw new Error('Apollo API returned an unexpected response format');
+    }
+
     const rawPeople = apolloData.people || apolloData.contacts || [];
+    if (!Array.isArray(rawPeople)) {
+      console.error('Apollo people/contacts is not an array:', typeof rawPeople);
+      throw new Error('Apollo API returned an unexpected data structure');
+    }
 
     // ── Step 2: Enrich each person via Apollo Match (1 credit/person) ─
     // The search endpoint doesn't return email/phone/linkedin.
@@ -181,13 +192,18 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
   }
 
   // Industry → q_keywords (broad keyword search, much more forgiving than q_organization_keyword_tags)
-  // We strip separators like " / ", " & ", " - " and send as a clean keyword string
-  if (industry) {
+  // Only strip spaced separators " / " and " & " — preserve hyphens in compounds (E-commerce, K-12)
+  // and bare ampersands in abbreviations (L&D)
+  if (industry && industry.trim() && industry.trim().toLowerCase() !== 'other') {
     const industryKeywords = industry
-      .replace(/[\/&\-–—]/g, ' ')     // Replace separators with spaces
-      .replace(/\s+/g, ' ')            // Collapse whitespace
+      .replace(/\s+\/\s+/g, ' ')       // " / " → space  (SaaS / Cloud → SaaS Cloud)
+      .replace(/\s+&\s+/g, ' ')        // " & " → space  (Data & Analytics → Data Analytics)
+      .replace(/\s+[–—]\s+/g, ' ')     // " – " / " — " → space (em/en dashes as separators)
+      .replace(/\s+/g, ' ')            // Collapse any double spaces
       .trim();
-    filters.q_keywords = industryKeywords;
+    if (industryKeywords) {
+      filters.q_keywords = industryKeywords;
+    }
   }
 
   // Company size → organization_num_employees_ranges
@@ -220,9 +236,29 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
   }
 
   // Geography → person_locations
+  // Expand abstract region names to country lists Apollo understands
   if (geography) {
-    const locations = Array.isArray(geography) ? geography : [geography];
-    filters.person_locations = locations;
+    const regionExpansion = {
+      'Global':         ['United States', 'United Kingdom', 'Germany', 'Canada', 'Australia', 'France', 'India'],
+      'Americas':       ['United States', 'Canada', 'Brazil', 'Mexico', 'Argentina', 'Colombia', 'Chile'],
+      'Latin America':  ['Brazil', 'Mexico', 'Argentina', 'Colombia', 'Chile', 'Peru'],
+      'EMEA':           ['United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy', 'Switzerland', 'Israel', 'United Arab Emirates', 'South Africa'],
+      'Nordics':        ['Sweden', 'Norway', 'Denmark', 'Finland'],
+      'Eastern Europe': ['Poland', 'Czech Republic', 'Romania', 'Hungary', 'Ukraine'],
+      'Middle East':    ['United Arab Emirates', 'Saudi Arabia', 'Israel', 'Qatar', 'Bahrain', 'Kuwait'],
+      'Africa':         ['South Africa', 'Nigeria', 'Kenya', 'Egypt', 'Ghana'],
+      'APAC':           ['Australia', 'Japan', 'India', 'South Korea', 'Singapore', 'China', 'New Zealand'],
+      'Southeast Asia': ['Singapore', 'Indonesia', 'Philippines', 'Thailand', 'Vietnam', 'Malaysia'],
+      // US regional — use just "United States" since Apollo handles country-level well
+      'United States, Northeast': ['United States'],
+      'United States, Southeast': ['United States'],
+      'United States, Midwest':   ['United States'],
+      'United States, West':      ['United States'],
+      'United States, Southwest': ['United States'],
+    };
+    const geoTrimmed = geography.trim();
+    const expanded = regionExpansion[geoTrimmed];
+    filters.person_locations = expanded || [geoTrimmed];
   }
 
   // Tech stack → q_organization_keyword_tags (specific tool names match well as keyword tags)

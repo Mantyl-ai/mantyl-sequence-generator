@@ -31,34 +31,42 @@ export async function generateSequence(params, onProgress) {
   const allSequences = [];
   let touchpointPlan = null;
 
+  let lastError = null;
+
   for (let i = 0; i < totalCount; i += CHUNK_SIZE) {
     const chunk = allProspects.slice(i, i + CHUNK_SIZE);
 
-    const res = await fetch(`${API_BASE}/generate-sequence`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...params,
-        prospects: chunk,
-      }),
-    });
+    try {
+      const res = await fetch(`${API_BASE}/generate-sequence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...params,
+          prospects: chunk,
+        }),
+      });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Failed to generate sequence' }));
-      throw new Error(err.error || `API error: ${res.status}`);
-    }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to generate sequence' }));
+        throw new Error(err.error || `API error: ${res.status}`);
+      }
 
-    const data = await res.json();
+      const data = await res.json();
 
-    // Fix prospect indices to be global (not per-chunk)
-    const fixedSequences = (data.sequences || []).map((seq, idx) => ({
-      ...seq,
-      prospectIndex: i + idx,
-    }));
+      // Fix prospect indices to be global (not per-chunk)
+      const fixedSequences = (data.sequences || []).map((seq, idx) => ({
+        ...seq,
+        prospectIndex: i + idx,
+      }));
 
-    allSequences.push(...fixedSequences);
-    if (!touchpointPlan && data.touchpointPlan) {
-      touchpointPlan = data.touchpointPlan;
+      allSequences.push(...fixedSequences);
+      if (!touchpointPlan && data.touchpointPlan) {
+        touchpointPlan = data.touchpointPlan;
+      }
+    } catch (err) {
+      console.error(`Chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed:`, err.message);
+      lastError = err;
+      // Continue to next chunk — preserve partial results
     }
 
     if (onProgress) {
@@ -66,5 +74,10 @@ export async function generateSequence(params, onProgress) {
     }
   }
 
-  return { sequences: allSequences, touchpointPlan };
+  // If ALL chunks failed, throw the last error
+  if (allSequences.length === 0 && lastError) {
+    throw lastError;
+  }
+
+  return { sequences: allSequences, touchpointPlan, partialFailure: !!lastError };
 }

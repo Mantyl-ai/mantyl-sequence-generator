@@ -34,8 +34,8 @@ export async function handler(event) {
 
     const touchpointPlan = buildTouchpointPlan(touchpointCount, channels, daySpacing);
 
-    // Generate copy for all prospects in parallel (batch by 5)
-    const batchSize = 5;
+    // Generate copy for all prospects in parallel (batch by 3 to stay within timeout)
+    const batchSize = 3;
     const allSequences = [];
 
     for (let i = 0; i < prospects.length; i += batchSize) {
@@ -70,10 +70,8 @@ function buildTouchpointPlan(count, channels, daySpacing) {
     else if (position <= 0.7) stage = 'value_add';
     else stage = 'closing';
 
-    let channel;
-    if (i === 0) channel = 'email';
-    else if (i === totalSteps - 1 && availableChannels.includes('calling')) channel = 'calling';
-    else channel = availableChannels[(i) % availableChannels.length];
+    // Respect user-defined channel order — cycle through in the order they selected
+    const channel = availableChannels[i % availableChannels.length];
 
     plan.push({ step: i + 1, day, stage, channel });
   }
@@ -183,19 +181,40 @@ Respond in this exact JSON format (no markdown, just raw JSON):
     if (!response.ok) {
       const errText = await response.text();
       console.error(`Claude API error for ${prospect.name}:`, response.status, errText);
-      throw new Error(`Claude API error: ${response.status}`);
+      throw new Error(`Claude API error: ${response.status} — ${errText.slice(0, 200)}`);
     }
 
     const data = await response.json();
     const content = data.content[0]?.text || '';
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Failed to parse Claude response as JSON');
+
+    // Use non-greedy match to find the FIRST complete JSON object
+    // Then validate it has the expected "touchpoints" key
+    const jsonMatch = content.match(/\{[\s\S]*?\"touchpoints\"\s*:\s*\[[\s\S]*?\]\s*\}/);
+    if (!jsonMatch) {
+      // Fallback: try greedy match but only if it parses and has touchpoints
+      const greedyMatch = content.match(/\{[\s\S]*\}/);
+      if (greedyMatch) {
+        try {
+          const attempt = JSON.parse(greedyMatch[0]);
+          if (attempt.touchpoints && Array.isArray(attempt.touchpoints) && attempt.touchpoints.length > 0) {
+            return { prospectIndex, prospectName: prospect.name, touchpoints: attempt.touchpoints };
+          }
+        } catch (_) { /* fall through to error */ }
+      }
+      throw new Error('Failed to parse Claude response — no valid touchpoints JSON found');
+    }
 
     const parsed = JSON.parse(jsonMatch[0]);
+
+    // Validate Claude returned actual touchpoints, not an empty array
+    if (!parsed.touchpoints || !Array.isArray(parsed.touchpoints) || parsed.touchpoints.length === 0) {
+      throw new Error('Claude returned empty touchpoints array');
+    }
+
     return {
       prospectIndex,
       prospectName: prospect.name,
-      touchpoints: parsed.touchpoints || [],
+      touchpoints: parsed.touchpoints,
     };
   } catch (err) {
     console.error(`Error generating for ${prospect.name}:`, err);
@@ -204,10 +223,11 @@ Respond in this exact JSON format (no markdown, just raw JSON):
       prospectName: prospect.name,
       touchpoints: touchpointPlan.map(tp => ({
         ...tp,
-        subject: tp.channel === 'email' ? `Following up - ${prospect.company}` : null,
-        body: tp.channel === 'email' ? `[Copy generation failed. Error: ${err.message}]` : null,
-        message: tp.channel === 'linkedin' ? `[Copy generation failed. Error: ${err.message}]` : null,
-        script: tp.channel === 'calling' ? `[Script generation failed. Error: ${err.message}]` : null,
+        subject: tp.channel === 'email' ? `⚠ Generation failed` : null,
+        body: tp.channel === 'email' ? `This touchpoint could not be generated. Please retry or write manually.\n\nError: ${err.message}` : null,
+        message: tp.channel === 'linkedin' ? `⚠ This touchpoint could not be generated. Please retry or write manually.` : null,
+        script: tp.channel === 'calling' ? `⚠ This call script could not be generated. Please retry or write manually.` : null,
+        generationFailed: true,
       })),
       error: err.message,
     };
