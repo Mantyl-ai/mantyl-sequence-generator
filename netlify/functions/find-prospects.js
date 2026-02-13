@@ -191,19 +191,20 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
     }
   }
 
-  // Industry → q_keywords (broad keyword search, much more forgiving than q_organization_keyword_tags)
-  // Only strip spaced separators " / " and " & " — preserve hyphens in compounds (E-commerce, K-12)
-  // and bare ampersands in abbreviations (L&D)
+  // Industry → q_organization_keyword_tags (ARRAY of company-level keyword tags)
+  // IMPORTANT: q_keywords searches person profiles (titles, descriptions), NOT company industry.
+  // q_organization_keyword_tags searches company-level keyword tags — which is what we need.
+  // Apollo treats these as OR — any matching tag will include the company.
+  // We split our compound industry names into individual keywords for broader matching.
+  // NOTE: Tech stack also uses this param — we merge both below.
+  const orgKeywordTags = [];
   if (industry && industry.trim() && industry.trim().toLowerCase() !== 'other') {
-    const industryKeywords = industry
-      .replace(/\s+\/\s+/g, ' ')       // " / " → space  (SaaS / Cloud → SaaS Cloud)
-      .replace(/\s+&\s+/g, ' ')        // " & " → space  (Data & Analytics → Data Analytics)
-      .replace(/\s+[–—]\s+/g, ' ')     // " – " / " — " → space (em/en dashes as separators)
-      .replace(/\s+/g, ' ')            // Collapse any double spaces
-      .trim();
-    if (industryKeywords) {
-      filters.q_keywords = industryKeywords;
-    }
+    const industryTags = industry
+      .split(/\s*[\/&–—]\s*/)          // Split on " / ", " & ", " – ", " — " separators
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 1);  // Drop single-char noise like "L", "D" from "L&D"
+
+    orgKeywordTags.push(...industryTags);
   }
 
   // Company size → organization_num_employees_ranges
@@ -261,14 +262,17 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
     filters.person_locations = expanded || [geoTrimmed];
   }
 
-  // Tech stack → q_organization_keyword_tags (specific tool names match well as keyword tags)
+  // Tech stack → also goes into q_organization_keyword_tags (merged with industry tags)
   if (techStack) {
     const tools = typeof techStack === 'string'
       ? techStack.split(',').map(t => t.trim()).filter(Boolean)
       : techStack;
-    if (tools.length > 0) {
-      filters.q_organization_keyword_tags = tools;
-    }
+    orgKeywordTags.push(...tools);
+  }
+
+  // Set merged keyword tags (industry + tech stack)
+  if (orgKeywordTags.length > 0) {
+    filters.q_organization_keyword_tags = orgKeywordTags;
   }
 
   console.log('Apollo filters:', JSON.stringify(filters, null, 2));
