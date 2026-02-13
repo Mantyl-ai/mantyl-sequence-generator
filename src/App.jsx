@@ -3,7 +3,7 @@ import ICPForm from './components/ICPForm'
 import ProspectList from './components/ProspectList'
 import SequenceCopy from './components/SequenceCopy'
 import MantylLoader from './components/MantylLoader'
-import { findProspects, generateSequence, pollForPhones, pollForClayEnrichment } from './utils/apiClient'
+import { findProspects, generateSequence, pollForPhones } from './utils/apiClient'
 
 const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
 
@@ -72,20 +72,6 @@ export default function App() {
           setPhonePollingActive(false)
         }, 120000)
 
-        // Start polling for Clay gap-fill enrichment (if Clay is configured)
-        if (prospectData.clayEnrichmentPending) {
-          const stopClayPolling = pollForClayEnrichment(
-            prospectData.sessionId,
-            foundProspects,
-            (updatedProspects) => {
-              setProspects(updatedProspects)
-              foundProspects = updatedProspects
-            },
-            { interval: 8000, maxDuration: 180000 } // Poll every 8s for up to 3 min
-          )
-          // Stop Clay polling after 3 min
-          setTimeout(() => { stopClayPolling() }, 180000)
-        }
       }
 
       const totalProspects = foundProspects.length

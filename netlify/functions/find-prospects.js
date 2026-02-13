@@ -1,7 +1,7 @@
 // Netlify Function: Find prospects via Apollo People Search + Enrichment
 // Step 1: Search (free, no credits) → Step 2: Enrich (1 credit/person for email)
 // Step 2b: Request phone reveals via webhook (async, Apollo sends phones to phone-webhook.js)
-// Optional Step 3: Clay webhook enrichment for additional data
+// Step 3: Hunter.io gap-fill for emails Apollo missed (synchronous, free tier = 25/month)
 import crypto from 'crypto';
 
 export async function handler(event) {
@@ -124,29 +124,26 @@ export async function handler(event) {
       })),
     };
 
-    // ── Step 3 (Optional): Clay gap-fill enrichment for missing data ────
-    // Clay enrichment is ASYNC — we send prospects with missing fields to Clay,
-    // Clay enriches them and POSTs results back to our clay-webhook function.
-    // Frontend polls clay-webhook for updates (same pattern as phone webhook).
-    const CLAY_WEBHOOK_URL = process.env.CLAY_WEBHOOK_URL;
+    // ── Step 3 (Optional): Hunter.io gap-fill for missing emails ────────
+    // Hunter.io Email Finder: synchronous API call, free tier = 25 lookups/month.
+    // Only runs for prospects where Apollo didn't find an email.
+    const HUNTER_API_KEY = process.env.HUNTER_API_KEY;
 
-    let clayRequested = false;
-    if (CLAY_WEBHOOK_URL && prospects.length > 0) {
+    if (HUNTER_API_KEY && prospects.length > 0) {
       try {
-        const clayWebhookUrl = `${siteUrl}/.netlify/functions/clay-webhook/${sessionId}`;
-        clayRequested = await sendToClayForGapFill(prospects, CLAY_WEBHOOK_URL, clayWebhookUrl);
-        console.log(`[Clay] Gap-fill requested for ${prospects.filter(p => !p.email || !p.phone || !p.linkedinUrl).length} prospects with missing data`);
-      } catch (clayErr) {
-        console.warn('Clay gap-fill request failed:', clayErr.message);
+        const hunterResults = await hunterGapFillEmails(prospects, HUNTER_API_KEY);
+        console.log(`[Hunter] Gap-fill complete: ${hunterResults.found}/${hunterResults.attempted} emails found`);
+        debugInfo.hunterStats = hunterResults;
+      } catch (hunterErr) {
+        console.warn('[Hunter] Gap-fill failed:', hunterErr.message);
       }
     }
 
     return respond(200, {
       prospects,
       total: prospects.length,
-      source: CLAY_WEBHOOK_URL ? 'apollo+clay' : 'apollo',
-      sessionId, // For phone + clay polling — frontend uses this to check for async data
-      clayEnrichmentPending: clayRequested, // Tell frontend to poll for Clay updates
+      source: HUNTER_API_KEY ? 'apollo+hunter' : 'apollo',
+      sessionId, // For phone polling — frontend uses this to check for async phone data
       _debug: debugInfo,
     });
 
@@ -592,86 +589,87 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
   return filters;
 }
 
-// ── Clay gap-fill enrichment ─────────────────────────────────────────
-// Sends prospects with MISSING data to Clay for secondary enrichment.
-// Clay enriches asynchronously and POSTs results back to clay-webhook.
-// Only sends prospects that have gaps (missing email, phone, or linkedin).
+// ── Hunter.io gap-fill for missing emails ────────────────────────────
+// Uses Hunter.io Email Finder API (free tier: 25 lookups/month).
+// Only looks up emails for prospects where Apollo returned nothing.
+// Synchronous — results come back immediately, no polling needed.
 //
-// What we send to Clay:
-//   - All identifying info (name, company, domain, linkedin, email)
-//   - Flags for what's MISSING so Clay knows what to look up
-//   - A callback_url where Clay should POST the results
-//   - A prospect_index to match results back to our array
-//
-// Clay table should have an HTTP API action at the end that POSTs results
-// back to our callback_url with the enriched fields.
-async function sendToClayForGapFill(prospects, clayWebhookUrl, callbackUrl) {
-  const headers = { 'Content-Type': 'application/json' };
+// API: GET https://api.hunter.io/v2/email-finder?domain=X&first_name=Y&last_name=Z&api_key=K
+// Response: { data: { email: "found@email.com", score: 91, ... } }
+async function hunterGapFillEmails(prospects, hunterApiKey) {
+  const needsEmail = prospects.filter(p => !p.email && p.companyDomain);
 
-  // Only send prospects with missing data
-  const prospectsWithGaps = prospects
-    .map((p, idx) => ({ ...p, _index: idx }))
-    .filter(p => !p.email || !p.phone || !p.linkedinUrl);
-
-  if (prospectsWithGaps.length === 0) {
-    console.log('[Clay] All prospects fully enriched by Apollo — skipping Clay');
-    return false;
+  if (needsEmail.length === 0) {
+    console.log('[Hunter] All prospects have emails — skipping Hunter');
+    return { attempted: 0, found: 0 };
   }
 
-  console.log(`[Clay] Sending ${prospectsWithGaps.length}/${prospects.length} prospects with gaps to Clay`);
+  console.log(`[Hunter] ${needsEmail.length}/${prospects.length} prospects missing email — querying Hunter.io`);
 
-  // Send each prospect to Clay individually (Clay webhook = 1 row per request)
-  const BATCH_SIZE = 5;
-  for (let i = 0; i < prospectsWithGaps.length; i += BATCH_SIZE) {
-    const batch = prospectsWithGaps.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map(async (prospect) => {
-      try {
-        const payload = {
-          // ── Identifying info (for Clay to look up the person) ──
-          name: prospect.name || '',
-          first_name: (prospect.name || '').split(' ')[0] || '',
-          last_name: (prospect.name || '').split(' ').slice(1).join(' ') || '',
-          job_title: prospect.title || '',
-          company: prospect.company || '',
-          company_domain: prospect.companyDomain || '',
-          linkedin_url: prospect.linkedinUrl || '',
-          email: prospect.email || '',
-          location: prospect.location || '',
-          industry: prospect.companyIndustry || '',
+  let found = 0;
+  let attempted = 0;
 
-          // ── Gap flags (tells Clay what's missing) ──
-          needs_email: !prospect.email,
-          needs_phone: !prospect.phone,
-          needs_linkedin: !prospect.linkedinUrl,
+  // Process one at a time to respect Hunter's rate limits (free tier)
+  for (const prospect of needsEmail) {
+    attempted++;
+    try {
+      const nameParts = (prospect.name || '').split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
 
-          // ── Callback info (for Clay's HTTP API action to POST back) ──
-          callback_url: callbackUrl,
-          prospect_index: prospect._index, // So we can match results back
-        };
-
-        const response = await fetch(clayWebhookUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        });
-
-        if (!response.ok) {
-          console.warn(`[Clay] Webhook failed for ${prospect.name}: ${response.status}`);
-        } else {
-          console.log(`[Clay] Sent ${prospect.name} (needs: ${!prospect.email ? 'email ' : ''}${!prospect.phone ? 'phone ' : ''}${!prospect.linkedinUrl ? 'linkedin' : ''})`);
-        }
-      } catch (err) {
-        console.warn(`[Clay] Error for ${prospect.name}:`, err.message);
+      if (!firstName || !prospect.companyDomain) {
+        console.log(`[Hunter] Skipping ${prospect.name}: missing name or domain`);
+        continue;
       }
-    }));
 
-    // Brief pause between batches
-    if (i + BATCH_SIZE < prospectsWithGaps.length) {
-      await new Promise(r => setTimeout(r, 500));
+      const params = new URLSearchParams({
+        domain: prospect.companyDomain,
+        first_name: firstName,
+        last_name: lastName,
+        api_key: hunterApiKey,
+      });
+
+      const res = await fetch(`https://api.hunter.io/v2/email-finder?${params}`);
+
+      if (res.status === 429) {
+        console.warn('[Hunter] Rate limit hit — stopping gap-fill');
+        break;
+      }
+
+      if (res.status === 402) {
+        console.warn('[Hunter] Monthly quota exhausted — stopping gap-fill');
+        break;
+      }
+
+      if (!res.ok) {
+        console.warn(`[Hunter] API error for ${prospect.name}: ${res.status}`);
+        continue;
+      }
+
+      const data = await res.json();
+      const hunterEmail = data?.data?.email;
+      const score = data?.data?.score || 0;
+
+      if (hunterEmail && hunterEmail.includes('@') && score >= 50) {
+        prospect.email = hunterEmail;
+        prospect.emailStatus = score >= 80 ? 'hunter_verified' : 'hunter_guessed';
+        prospect.emailSource = 'hunter';
+        prospect.enrichmentStatus = prospect.linkedinUrl ? 'enriched' : 'partial';
+        found++;
+        console.log(`[Hunter] Found email for ${prospect.name}: ${hunterEmail} (score: ${score})`);
+      } else {
+        console.log(`[Hunter] No confident email for ${prospect.name} (score: ${score})`);
+      }
+
+      // Brief pause between calls (be nice to free tier)
+      await new Promise(r => setTimeout(r, 300));
+
+    } catch (err) {
+      console.warn(`[Hunter] Error for ${prospect.name}:`, err.message);
     }
   }
 
-  return true;
+  return { attempted, found };
 }
 
 // ── Enrichment status helper ─────────────────────────────────────────
