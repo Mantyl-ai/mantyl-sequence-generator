@@ -124,15 +124,20 @@ export async function handler(event) {
       })),
     };
 
-    // ── Step 3 (Optional): Additional enrichment via Clay webhook ────
+    // ── Step 3 (Optional): Clay gap-fill enrichment for missing data ────
+    // Clay enrichment is ASYNC — we send prospects with missing fields to Clay,
+    // Clay enriches them and POSTs results back to our clay-webhook function.
+    // Frontend polls clay-webhook for updates (same pattern as phone webhook).
     const CLAY_WEBHOOK_URL = process.env.CLAY_WEBHOOK_URL;
-    const CLAY_WEBHOOK_AUTH = process.env.CLAY_WEBHOOK_AUTH;
 
+    let clayRequested = false;
     if (CLAY_WEBHOOK_URL && prospects.length > 0) {
       try {
-        prospects = await enrichViaClay(prospects, CLAY_WEBHOOK_URL, CLAY_WEBHOOK_AUTH);
+        const clayWebhookUrl = `${siteUrl}/.netlify/functions/clay-webhook/${sessionId}`;
+        clayRequested = await sendToClayForGapFill(prospects, CLAY_WEBHOOK_URL, clayWebhookUrl);
+        console.log(`[Clay] Gap-fill requested for ${prospects.filter(p => !p.email || !p.phone || !p.linkedinUrl).length} prospects with missing data`);
       } catch (clayErr) {
-        console.warn('Clay enrichment failed, returning Apollo data:', clayErr.message);
+        console.warn('Clay gap-fill request failed:', clayErr.message);
       }
     }
 
@@ -140,7 +145,8 @@ export async function handler(event) {
       prospects,
       total: prospects.length,
       source: CLAY_WEBHOOK_URL ? 'apollo+clay' : 'apollo',
-      sessionId, // For phone polling — frontend uses this to check for async phone data
+      sessionId, // For phone + clay polling — frontend uses this to check for async data
+      clayEnrichmentPending: clayRequested, // Tell frontend to poll for Clay updates
       _debug: debugInfo,
     });
 
@@ -586,40 +592,86 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
   return filters;
 }
 
-// ── Optional Clay enrichment via webhook ─────────────────────────────
-async function enrichViaClay(prospects, webhookUrl, authToken) {
+// ── Clay gap-fill enrichment ─────────────────────────────────────────
+// Sends prospects with MISSING data to Clay for secondary enrichment.
+// Clay enriches asynchronously and POSTs results back to clay-webhook.
+// Only sends prospects that have gaps (missing email, phone, or linkedin).
+//
+// What we send to Clay:
+//   - All identifying info (name, company, domain, linkedin, email)
+//   - Flags for what's MISSING so Clay knows what to look up
+//   - A callback_url where Clay should POST the results
+//   - A prospect_index to match results back to our array
+//
+// Clay table should have an HTTP API action at the end that POSTs results
+// back to our callback_url with the enriched fields.
+async function sendToClayForGapFill(prospects, clayWebhookUrl, callbackUrl) {
   const headers = { 'Content-Type': 'application/json' };
-  if (authToken) {
-    headers['x-clay-webhook-auth'] = authToken;
+
+  // Only send prospects with missing data
+  const prospectsWithGaps = prospects
+    .map((p, idx) => ({ ...p, _index: idx }))
+    .filter(p => !p.email || !p.phone || !p.linkedinUrl);
+
+  if (prospectsWithGaps.length === 0) {
+    console.log('[Clay] All prospects fully enriched by Apollo — skipping Clay');
+    return false;
   }
 
-  const enrichmentPromises = prospects.map(async (prospect) => {
-    try {
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          name: prospect.name,
-          job_title: prospect.title,
-          company: prospect.company,
-          company_domain: prospect.companyDomain,
-          linkedin_url: prospect.linkedinUrl,
-          industry: prospect.companyIndustry,
-          company_size: prospect.companySize,
-          location: prospect.location,
-        }),
-      });
+  console.log(`[Clay] Sending ${prospectsWithGaps.length}/${prospects.length} prospects with gaps to Clay`);
 
-      if (!response.ok) {
-        console.warn(`Clay webhook failed for ${prospect.name}:`, response.status);
+  // Send each prospect to Clay individually (Clay webhook = 1 row per request)
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < prospectsWithGaps.length; i += BATCH_SIZE) {
+    const batch = prospectsWithGaps.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (prospect) => {
+      try {
+        const payload = {
+          // ── Identifying info (for Clay to look up the person) ──
+          name: prospect.name || '',
+          first_name: (prospect.name || '').split(' ')[0] || '',
+          last_name: (prospect.name || '').split(' ').slice(1).join(' ') || '',
+          job_title: prospect.title || '',
+          company: prospect.company || '',
+          company_domain: prospect.companyDomain || '',
+          linkedin_url: prospect.linkedinUrl || '',
+          email: prospect.email || '',
+          location: prospect.location || '',
+          industry: prospect.companyIndustry || '',
+
+          // ── Gap flags (tells Clay what's missing) ──
+          needs_email: !prospect.email,
+          needs_phone: !prospect.phone,
+          needs_linkedin: !prospect.linkedinUrl,
+
+          // ── Callback info (for Clay's HTTP API action to POST back) ──
+          callback_url: callbackUrl,
+          prospect_index: prospect._index, // So we can match results back
+        };
+
+        const response = await fetch(clayWebhookUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          console.warn(`[Clay] Webhook failed for ${prospect.name}: ${response.status}`);
+        } else {
+          console.log(`[Clay] Sent ${prospect.name} (needs: ${!prospect.email ? 'email ' : ''}${!prospect.phone ? 'phone ' : ''}${!prospect.linkedinUrl ? 'linkedin' : ''})`);
+        }
+      } catch (err) {
+        console.warn(`[Clay] Error for ${prospect.name}:`, err.message);
       }
-    } catch (err) {
-      console.warn(`Clay webhook error for ${prospect.name}:`, err.message);
-    }
-  });
+    }));
 
-  await Promise.all(enrichmentPromises);
-  return prospects;
+    // Brief pause between batches
+    if (i + BATCH_SIZE < prospectsWithGaps.length) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  return true;
 }
 
 // ── Enrichment status helper ─────────────────────────────────────────

@@ -268,6 +268,93 @@ export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
   return () => { stopped = true; };
 }
 
+/**
+ * Poll for async Clay enrichment data.
+ * Clay fills gaps (missing email, phone, linkedin) that Apollo couldn't find.
+ * Similar pattern to phone polling — Clay sends results to clay-webhook, we poll for them.
+ *
+ * @param {string} sessionId - Session ID from find-prospects response
+ * @param {Array} prospects - Current prospects array
+ * @param {Function} onUpdate - Called with updated prospects when Clay data arrives
+ * @param {Object} options - { interval: 8000, maxDuration: 180000 }
+ * @returns {Function} cleanup function to stop polling
+ */
+export function pollForClayEnrichment(sessionId, prospects, onUpdate, options = {}) {
+  const { interval = 8000, maxDuration = 180000 } = options; // Clay takes longer — 8s interval, 3min max
+  let stopped = false;
+  let lastCount = 0;
+  const startTime = Date.now();
+
+  const poll = async () => {
+    if (stopped) return;
+    if (Date.now() - startTime > maxDuration) {
+      console.log('[Clay Poll] Max duration reached, stopping');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/clay-webhook/${sessionId}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const enrichments = data.enrichments || {};
+      const totalReceived = data.totalReceived || 0;
+
+      if (totalReceived > lastCount) {
+        lastCount = totalReceived;
+        console.log(`[Clay Poll] ${totalReceived} enrichment(s) received from Clay`);
+
+        // Merge Clay enrichments into prospects by index
+        let changeCount = 0;
+        const updated = prospects.map((p, idx) => {
+          const clay = enrichments[String(idx)];
+          if (!clay) return p;
+
+          const changes = {};
+          // Only fill MISSING fields — never overwrite Apollo data
+          if (clay.email && !p.email) {
+            changes.email = clay.email;
+            changes.emailStatus = clay.emailStatus || 'clay_enriched';
+            changes.emailSource = 'clay';
+          }
+          if (clay.phone && !p.phone) {
+            changes.phone = clay.phone;
+            changes.phoneType = clay.phoneType || '';
+            changes.phoneSource = 'clay';
+          }
+          if (clay.linkedinUrl && !p.linkedinUrl) {
+            changes.linkedinUrl = clay.linkedinUrl;
+            changes.linkedinSource = 'clay';
+          }
+
+          if (Object.keys(changes).length > 0) {
+            changeCount++;
+            const enrichmentStatus = (changes.email || p.email) ? 'enriched' : ((changes.linkedinUrl || p.linkedinUrl) ? 'partial' : p.enrichmentStatus);
+            return { ...p, ...changes, enrichmentStatus };
+          }
+          return p;
+        });
+
+        if (changeCount > 0) {
+          console.log(`[Clay Poll] Updated ${changeCount} prospects with Clay data`);
+          onUpdate(updated);
+        }
+      }
+    } catch (err) {
+      console.warn('[Clay Poll] Error:', err.message);
+    }
+
+    if (!stopped) {
+      setTimeout(poll, interval);
+    }
+  };
+
+  // Start polling after a longer delay (Clay needs time to process)
+  setTimeout(poll, 10000);
+
+  return () => { stopped = true; };
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
