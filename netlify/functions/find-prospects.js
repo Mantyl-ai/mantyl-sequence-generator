@@ -38,7 +38,7 @@ export async function handler(event) {
     const count = Math.min(parseInt(prospectCount) || 10, 15);
 
     // ── Step 1: Search for people via Apollo ─────────────────────────
-    const apolloFilters = buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack });
+    const apolloFilters = buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack, otherCriteria });
 
     const apolloResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
       method: 'POST',
@@ -461,7 +461,7 @@ function normalizeSearchPerson(person) {
 }
 
 // ── Apollo filter builder ────────────────────────────────────────────
-function buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack }) {
+function buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack, otherCriteria }) {
   const filters = {};
 
   // Job titles → person_titles array
@@ -479,15 +479,15 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
   // q_organization_keyword_tags searches company-level keyword tags — which is what we need.
   // Apollo treats these as OR — any matching tag will include the company.
   // We split our compound industry names into individual keywords for broader matching.
-  // NOTE: Tech stack also uses this param — we merge both below.
-  const orgKeywordTags = [];
   if (industry && industry.trim() && industry.trim().toLowerCase() !== 'other') {
     const industryTags = industry
       .split(/\s*[\/&–—]\s*/)          // Split on " / ", " & ", " – ", " — " separators
       .map(tag => tag.trim())
       .filter(tag => tag.length > 1);  // Drop single-char noise like "L", "D" from "L&D"
 
-    orgKeywordTags.push(...industryTags);
+    if (industryTags.length > 0) {
+      filters.q_organization_keyword_tags = industryTags;
+    }
   }
 
   // Company size → organization_num_employees_ranges
@@ -545,17 +545,34 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
     filters.person_locations = expanded || [geoTrimmed];
   }
 
-  // Tech stack → also goes into q_organization_keyword_tags (merged with industry tags)
+  // Tech stack → BOTH technology_names AND q_organization_keyword_tags
+  // technology_names: Apollo's curated technology database — precise matching for known tools
+  //   (e.g. "Salesforce", "HubSpot", "AWS"). Best for well-known SaaS/tools.
+  // q_organization_keyword_tags: Broader keyword match — catches tools not in Apollo's tech DB.
+  // Using both ensures maximum coverage: exact tech matches + keyword fallback.
   if (techStack) {
     const tools = typeof techStack === 'string'
       ? techStack.split(',').map(t => t.trim()).filter(Boolean)
       : techStack;
-    orgKeywordTags.push(...tools);
+    if (tools.length > 0) {
+      filters.technology_names = tools;
+      // Also add to org keyword tags as fallback for tools not in Apollo's tech database
+      filters.q_organization_keyword_tags = [
+        ...(filters.q_organization_keyword_tags || []),
+        ...tools,
+      ];
+    }
   }
 
-  // Set merged keyword tags (industry + tech stack)
-  if (orgKeywordTags.length > 0) {
-    filters.q_organization_keyword_tags = orgKeywordTags;
+  // Other qualifying criteria → q_keywords (free-text search across person/company profiles)
+  // Examples: "Series B+ funding", "recently hired SDRs", "growing 50%+ YoY"
+  // q_keywords is Apollo's general keyword search — it matches across names, titles,
+  // company descriptions, and other indexed fields.
+  if (otherCriteria) {
+    const criteria = typeof otherCriteria === 'string' ? otherCriteria.trim() : '';
+    if (criteria) {
+      filters.q_keywords = criteria;
+    }
   }
 
   console.log('Apollo filters:', JSON.stringify(filters, null, 2));
