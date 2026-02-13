@@ -180,10 +180,14 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
     }
   }
 
-  // Industry → q_organization_keyword_tags
+  // Industry → q_keywords (broad keyword search, much more forgiving than q_organization_keyword_tags)
+  // We strip separators like " / ", " & ", " - " and send as a clean keyword string
   if (industry) {
-    const industries = Array.isArray(industry) ? industry : [industry];
-    filters.q_organization_keyword_tags = industries;
+    const industryKeywords = industry
+      .replace(/[\/&\-–—]/g, ' ')     // Replace separators with spaces
+      .replace(/\s+/g, ' ')            // Collapse whitespace
+      .trim();
+    filters.q_keywords = industryKeywords;
   }
 
   // Company size → organization_num_employees_ranges
@@ -221,19 +225,17 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
     filters.person_locations = locations;
   }
 
-  // Tech stack → q_organization_keyword_tags (append to industry tags)
+  // Tech stack → q_organization_keyword_tags (specific tool names match well as keyword tags)
   if (techStack) {
     const tools = typeof techStack === 'string'
       ? techStack.split(',').map(t => t.trim()).filter(Boolean)
       : techStack;
     if (tools.length > 0) {
-      filters.q_organization_keyword_tags = [
-        ...(filters.q_organization_keyword_tags || []),
-        ...tools,
-      ];
+      filters.q_organization_keyword_tags = tools;
     }
   }
 
+  console.log('Apollo filters:', JSON.stringify(filters, null, 2));
   return filters;
 }
 
