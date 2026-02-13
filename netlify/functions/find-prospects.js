@@ -25,9 +25,10 @@ export async function handler(event) {
   const sessionId = crypto.randomUUID();
 
   // Build webhook URL for async phone delivery
-  // Netlify sets URL env var automatically (e.g., https://tools.mantyl.ai)
+  // Use path-based sessionId (not query params) — some APIs strip query strings from webhooks
   const siteUrl = process.env.URL || 'https://tools.mantyl.ai';
-  const phoneWebhookUrl = `${siteUrl}/.netlify/functions/phone-webhook?sessionId=${sessionId}`;
+  const phoneWebhookUrl = `${siteUrl}/.netlify/functions/phone-webhook/${sessionId}`;
+  console.log(`[Phone Webhook] URL: ${phoneWebhookUrl}`);
 
   try {
     const body = JSON.parse(event.body);
@@ -267,6 +268,7 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
       // Add webhook URL for async phone delivery (Apollo requires this for phone reveals)
       if (phoneWebhookUrl) {
         matchBody.webhook_url = phoneWebhookUrl;
+        console.log(`[Phone] Sending webhook_url to Apollo: ${phoneWebhookUrl}`);
       }
 
       // Use linkedin_url as primary identifier (strongest match signal)

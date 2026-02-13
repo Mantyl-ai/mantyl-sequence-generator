@@ -17,14 +17,20 @@ export async function handler(event) {
   }
 
   try {
-    const sessionId = event.queryStringParameters?.sessionId;
+    // Extract sessionId from URL path (e.g., /phone-webhook/abc-123)
+    // or fallback to query param for backwards compatibility
+    const pathParts = (event.path || '').split('/').filter(Boolean);
+    const sessionId = pathParts[pathParts.length - 1] !== 'phone-webhook'
+      ? pathParts[pathParts.length - 1]
+      : event.queryStringParameters?.sessionId;
+
     if (!sessionId) {
-      console.warn('Phone webhook called without sessionId');
+      console.warn('Phone webhook called without sessionId. Path:', event.path, 'Query:', JSON.stringify(event.queryStringParameters));
       return respond(400, { error: 'Missing sessionId' });
     }
 
     const body = JSON.parse(event.body || '{}');
-    console.log(`Phone webhook received for session ${sessionId}:`, JSON.stringify(body).slice(0, 500));
+    console.log(`Phone webhook received for session ${sessionId}:`, JSON.stringify(body).slice(0, 1000));
 
     // Extract phone data from Apollo's webhook payload
     // Apollo sends person data with phone_numbers array
