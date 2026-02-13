@@ -232,7 +232,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Sender Profile */}
       <div className="form-section sender-section">
         <h3 className="form-section-title">
-          <span className="icon" style={{ background: 'rgba(232,158,108,0.1)', color: '#E89E6C' }}><SvgIcon name="user" size={16} color="#E89E6C" /></span>
+          <span className="icon" style={{ background: 'rgba(212,132,154,0.1)', color: '#D4849A' }}><SvgIcon name="user" size={16} color="#D4849A" /></span>
           Your Profile
           <span className="section-subtitle">— this info signs off your outbound copy</span>
         </h3>
@@ -355,7 +355,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
       {/* Product & Messaging Context */}
       <div className="form-section product-section">
         <h3 className="form-section-title">
-          <span className="icon" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}><SvgIcon name="messageSquare" size={16} color="#22c55e" /></span>
+          <span className="icon" style={{ background: 'rgba(155,127,199,0.1)', color: '#9B7FC7' }}><SvgIcon name="messageSquare" size={16} color="#9B7FC7" /></span>
           Product & Messaging
         </h3>
         <div className="form-grid">

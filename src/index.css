@@ -1131,11 +1131,11 @@ body {
 
 /* ===== Sender Section ===== */
 .sender-section {
-  border-left: 3px solid var(--accent-peach);
+  border-left: 3px solid var(--accent-rose);
 }
 
 .product-section {
-  border-left: 3px solid #22c55e;
+  border-left: 3px solid var(--accent-lavender);
 }
 
 .optional-tag {
