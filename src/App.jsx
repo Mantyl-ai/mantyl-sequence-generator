@@ -5,7 +5,7 @@ import SequenceCopy from './components/SequenceCopy'
 import MantylLoader from './components/MantylLoader'
 import { findProspects, generateSequence } from './utils/apiClient'
 
-const CALENDLY_URL = 'https://calendly.com/mantyl/demo'
+const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
 
 function getUsageCount() {
   try { return parseInt(localStorage.getItem('mantyl_usage') || '0', 10) } catch { return 0 }
@@ -83,6 +83,11 @@ export default function App() {
       const newCount = incrementUsage()
       setUsageCount(newCount)
       setStep('results')
+
+      // Scroll to top so user sees results from the beginning
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      })
 
     } catch (err) {
       console.error(err)

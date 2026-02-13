@@ -25,7 +25,7 @@ export async function findProspects(icpParams) {
  * @returns {Promise<Object>} - { sequences, touchpointPlan }
  */
 export async function generateSequence(params, onProgress) {
-  const CHUNK_SIZE = 3;
+  const CHUNK_SIZE = 2;
   const allProspects = params.prospects || [];
   const totalCount = allProspects.length;
   const allSequences = [];

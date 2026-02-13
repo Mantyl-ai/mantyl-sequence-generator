@@ -34,8 +34,8 @@ export async function handler(event) {
 
     const touchpointPlan = buildTouchpointPlan(touchpointCount, channels, daySpacing);
 
-    // Generate copy for all prospects in parallel (batch by 3 to stay within timeout)
-    const batchSize = 3;
+    // Generate copy for all prospects in parallel (batch by 2 to stay within Netlify 26s timeout)
+    const batchSize = 2;
     const allSequences = [];
 
     for (let i = 0; i < prospects.length; i += batchSize) {
