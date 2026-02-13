@@ -140,11 +140,11 @@ export async function handler(event) {
     }
 
     // ── Step 4: Email pattern guessing for any remaining gaps ───────────
-    // When both Apollo and Hunter fail, construct an email from the most
-    // common corporate pattern: first.last@domain.com
-    // Also tries: flast@domain.com if we know the company uses that pattern.
-    // Uses Hunter's Email Verifier (free: 50 verifications/month) to check.
-    const stillMissingEmail = prospects.filter(p => !p.email && p.companyDomain);
+    // When both Apollo and Hunter fail, construct an email from common
+    // corporate patterns. Infers domain from company name if needed.
+    // Tries multiple patterns and verifies via Hunter Email Verifier if available.
+    // ALWAYS assigns an email — never leaves a prospect without one.
+    const stillMissingEmail = prospects.filter(p => !p.email);
     if (stillMissingEmail.length > 0) {
       const patternResults = await guessEmailPatterns(prospects, HUNTER_API_KEY);
       console.log(`[Pattern] Guessed ${patternResults.found}/${patternResults.attempted} emails from patterns`);
@@ -687,22 +687,31 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
 // ── Email pattern guessing (Step 4 fallback) ─────────────────────────
 // When Apollo and Hunter both fail, construct emails from common patterns.
 // Strategy:
-//   1. Look at emails we DID find for the same domain → infer the pattern
-//   2. If no pattern found, try the most common corporate patterns
-//   3. Optionally verify via Hunter Email Verifier (free: 50/month)
+//   1. Infer domain from company name if companyDomain is missing
+//   2. Look at emails we DID find for the same domain → infer the pattern
+//   3. Try multiple patterns until one verifies, or use best guess
 //
 // Common corporate email patterns (ordered by frequency):
 //   first.last@domain.com  (~55% of companies)
-//   first@domain.com       (~15%)
 //   flast@domain.com       (~12%)
+//   first@domain.com       (~15%)
 //   firstl@domain.com      (~8%)
 //   first_last@domain.com  (~5%)
-//   last.first@domain.com  (~3%)
 async function guessEmailPatterns(prospects, hunterApiKey) {
+  // First: infer missing domains from company name or LinkedIn URL
+  for (const p of prospects) {
+    if (!p.companyDomain && p.company) {
+      p.companyDomain = inferDomainFromCompany(p.company, p.linkedinUrl);
+      if (p.companyDomain) {
+        console.log(`[Pattern] Inferred domain for ${p.company}: ${p.companyDomain}`);
+      }
+    }
+  }
+
   const needsEmail = prospects.filter(p => !p.email && p.companyDomain);
   if (needsEmail.length === 0) return { attempted: 0, found: 0 };
 
-  // Step 1: Learn patterns from emails we already have (same domain)
+  // Learn patterns from emails we already have (same domain)
   const domainPatterns = {};
   for (const p of prospects) {
     if (!p.email || !p.companyDomain) continue;
@@ -714,6 +723,7 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
 
   let found = 0;
   let attempted = 0;
+  let verifierAvailable = !!hunterApiKey;
 
   for (const prospect of needsEmail) {
     attempted++;
@@ -724,68 +734,123 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
 
     if (!firstName || !lastName || !domain) continue;
 
-    // Use known pattern for this domain, or default to first.last
+    // Build candidate emails: known pattern first, then try all common patterns
     const knownPattern = domainPatterns[domain];
-    let guessedEmail = '';
+    const candidates = [];
 
-    if (knownPattern === 'first.last') {
-      guessedEmail = `${firstName}.${lastName}@${domain}`;
-    } else if (knownPattern === 'flast') {
-      guessedEmail = `${firstName[0]}${lastName}@${domain}`;
-    } else if (knownPattern === 'first') {
-      guessedEmail = `${firstName}@${domain}`;
-    } else if (knownPattern === 'firstl') {
-      guessedEmail = `${firstName}${lastName[0]}@${domain}`;
-    } else if (knownPattern === 'first_last') {
-      guessedEmail = `${firstName}_${lastName}@${domain}`;
-    } else {
-      // Default: try first.last (most common pattern globally)
-      guessedEmail = `${firstName}.${lastName}@${domain}`;
+    // If we know the pattern for this domain, try that first
+    if (knownPattern) {
+      candidates.push({ email: buildEmail(knownPattern, firstName, lastName, domain), pattern: knownPattern });
     }
 
-    // Try to verify with Hunter if we have an API key
-    let verified = false;
-    if (hunterApiKey) {
-      try {
-        const params = new URLSearchParams({
-          email: guessedEmail,
-          api_key: hunterApiKey,
-        });
-        const res = await fetch(`https://api.hunter.io/v2/email-verifier?${params}`);
-
-        if (res.ok) {
-          const data = await res.json();
-          const status = data?.data?.status; // "valid", "invalid", "accept_all", "webmail", "disposable", "unknown"
-          const score = data?.data?.score || 0;
-
-          if (status === 'valid' || (status === 'accept_all' && score >= 50)) {
-            verified = true;
-          } else if (status === 'invalid') {
-            console.log(`[Pattern] ${guessedEmail} is invalid — skipping`);
-            continue;
-          }
-          // "accept_all" means the server accepts any email — still use it but mark as guessed
-        } else if (res.status === 429 || res.status === 402) {
-          console.warn('[Pattern] Hunter verifier quota hit — using unverified patterns');
-          // Continue without verification
-        }
-
-        await new Promise(r => setTimeout(r, 200));
-      } catch (err) {
-        console.warn(`[Pattern] Verify error for ${guessedEmail}:`, err.message);
+    // Add all common patterns (skip the known one to avoid duplicates)
+    const allPatterns = ['first.last', 'flast', 'first', 'firstl', 'first_last'];
+    for (const pat of allPatterns) {
+      if (pat !== knownPattern) {
+        candidates.push({ email: buildEmail(pat, firstName, lastName, domain), pattern: pat });
       }
     }
 
-    // Assign the guessed email
-    prospect.email = guessedEmail;
+    // Try to verify each candidate with Hunter
+    let bestEmail = candidates[0].email; // Default to first candidate
+    let bestPattern = candidates[0].pattern;
+    let verified = false;
+
+    if (verifierAvailable) {
+      for (const candidate of candidates) {
+        try {
+          const params = new URLSearchParams({
+            email: candidate.email,
+            api_key: hunterApiKey,
+          });
+          const res = await fetch(`https://api.hunter.io/v2/email-verifier?${params}`);
+
+          if (res.status === 429 || res.status === 402) {
+            console.warn('[Pattern] Hunter verifier quota hit — using best guess for remaining');
+            verifierAvailable = false;
+            break;
+          }
+
+          if (res.ok) {
+            const data = await res.json();
+            const status = data?.data?.status;
+            const score = data?.data?.score || 0;
+
+            if (status === 'valid') {
+              bestEmail = candidate.email;
+              bestPattern = candidate.pattern;
+              verified = true;
+              console.log(`[Pattern] Verified ${candidate.email} (pattern: ${candidate.pattern}, score: ${score})`);
+              break; // Found a valid one, stop trying
+            } else if (status === 'accept_all') {
+              // Server accepts anything — use this but keep trying for a better match
+              bestEmail = candidate.email;
+              bestPattern = candidate.pattern;
+              console.log(`[Pattern] ${candidate.email} is accept_all (score: ${score})`);
+              break; // accept_all means the domain accepts any address, no point trying more
+            }
+            // "invalid" or "unknown" — try next pattern
+            console.log(`[Pattern] ${candidate.email} is ${status} — trying next pattern`);
+          }
+
+          await new Promise(r => setTimeout(r, 200));
+        } catch (err) {
+          console.warn(`[Pattern] Verify error for ${candidate.email}:`, err.message);
+        }
+      }
+    }
+
+    // ALWAYS assign an email — never leave a prospect without one
+    prospect.email = bestEmail;
     prospect.emailStatus = verified ? 'verified' : 'pattern_guessed';
     prospect.emailSource = 'pattern';
     prospect.enrichmentStatus = prospect.linkedinUrl ? 'enriched' : 'partial';
     found++;
-    console.log(`[Pattern] ${verified ? 'Verified' : 'Guessed'} email for ${prospect.name}: ${guessedEmail} (pattern: ${knownPattern || 'first.last'})`);
+    console.log(`[Pattern] ${verified ? 'Verified' : 'Guessed'} email for ${prospect.name}: ${bestEmail} (pattern: ${bestPattern})`);
   }
 
   return { attempted, found };
+}
+
+// Build email from pattern + name parts
+function buildEmail(pattern, firstName, lastName, domain) {
+  switch (pattern) {
+    case 'first.last': return `${firstName}.${lastName}@${domain}`;
+    case 'flast': return `${firstName[0]}${lastName}@${domain}`;
+    case 'first': return `${firstName}@${domain}`;
+    case 'firstl': return `${firstName}${lastName[0]}@${domain}`;
+    case 'first_last': return `${firstName}_${lastName}@${domain}`;
+    case 'last.first': return `${lastName}.${firstName}@${domain}`;
+    default: return `${firstName}.${lastName}@${domain}`;
+  }
+}
+
+// Infer company domain from company name when Apollo didn't provide one
+function inferDomainFromCompany(companyName, linkedinUrl) {
+  if (!companyName) return '';
+
+  // Try to extract domain from LinkedIn company URL if available
+  // e.g., linkedin.com/company/ncc-group → nccgroup.com
+  if (linkedinUrl && linkedinUrl.includes('linkedin.com/company/')) {
+    const match = linkedinUrl.match(/linkedin\.com\/company\/([^/?]+)/);
+    if (match) {
+      const slug = match[1].replace(/-/g, '');
+      return `${slug}.com`;
+    }
+  }
+
+  // Common company name → domain mappings
+  const cleaned = companyName
+    .toLowerCase()
+    .replace(/\s*(inc\.?|llc|ltd\.?|corp\.?|co\.?|group|plc|gmbh|ag|sa|services?|solutions?|technologies?|consulting)\s*/gi, '')
+    .trim()
+    .replace(/[^a-z0-9]/g, ''); // Remove spaces, special chars
+
+  if (cleaned) {
+    return `${cleaned}.com`;
+  }
+
+  return '';
 }
 
 // Detect which email pattern a company uses based on a known email + name
