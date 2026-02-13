@@ -95,59 +95,91 @@ export async function handler(event) {
 }
 
 // ── Apollo Enrichment — get email, phone, LinkedIn for each person ───
+// Batches requests (5 at a time) to avoid Apollo rate limits when enriching 20 people
 async function enrichProspects(rawPeople, apiKey) {
-  const enrichmentPromises = rawPeople.map(async (person) => {
-    try {
-      const org = person.organization || {};
-      const firstName = person.first_name || '';
-      const lastName = person.last_name || '';
-      const domain = org.primary_domain || org.website_url || '';
+  const BATCH_SIZE = 5;
+  const BATCH_DELAY = 1000; // 1s between batches to avoid rate limits
+  const results = [];
 
-      // Call Apollo People Match endpoint to get contact details
-      const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          first_name: firstName,
-          last_name: lastName,
-          organization_name: org.name || person.organization_name || '',
-          domain: domain,
-          reveal_personal_emails: true,
-        }),
-      });
+  for (let i = 0; i < rawPeople.length; i += BATCH_SIZE) {
+    const batch = rawPeople.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(person => enrichOnePerson(person, apiKey)));
+    results.push(...batchResults);
 
-      if (matchResponse.ok) {
-        const matchData = await matchResponse.json();
-        const enrichedPerson = matchData.person || matchData;
-
-        return {
-          name: enrichedPerson.name || person.name || `${firstName} ${lastName}`.trim() || 'Unknown',
-          title: enrichedPerson.title || person.title || person.headline || '',
-          company: (enrichedPerson.organization || {}).name || org.name || person.organization_name || '',
-          email: enrichedPerson.email || '',
-          phone: enrichedPerson.phone_number || enrichedPerson.sanitized_phone || '',
-          linkedinUrl: enrichedPerson.linkedin_url || '',
-          location: formatLocation(enrichedPerson) || formatLocation(person) || '',
-          companyDomain: (enrichedPerson.organization || {}).primary_domain || domain || '',
-          companyIndustry: (enrichedPerson.organization || {}).industry || org.industry || '',
-          companySize: (enrichedPerson.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
-          enrichmentStatus: getEnrichmentStatus(enrichedPerson),
-        };
-      } else {
-        console.warn(`Apollo enrichment failed for ${firstName} ${lastName}:`, matchResponse.status);
-        // Fall back to search-only data (no email/phone/linkedin)
-        return normalizeSearchPerson(person);
-      }
-    } catch (err) {
-      console.warn(`Apollo enrichment error for ${person.name || 'unknown'}:`, err.message);
-      return normalizeSearchPerson(person);
+    // Brief pause between batches (skip after last batch)
+    if (i + BATCH_SIZE < rawPeople.length) {
+      await new Promise(r => setTimeout(r, BATCH_DELAY));
     }
-  });
+  }
 
-  return Promise.all(enrichmentPromises);
+  return results;
+}
+
+async function enrichOnePerson(person, apiKey) {
+  try {
+    const org = person.organization || {};
+    const firstName = person.first_name || '';
+    const lastName = person.last_name || '';
+    const domain = org.primary_domain || org.website_url || '';
+
+    // Also try to get email directly from the search result
+    const searchEmail = person.email || '';
+    const searchLinkedin = person.linkedin_url || '';
+    const searchPhone = person.phone_number || person.sanitized_phone || '';
+
+    // Call Apollo People Match endpoint to get contact details
+    const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        first_name: firstName,
+        last_name: lastName,
+        organization_name: org.name || person.organization_name || '',
+        domain: domain,
+        reveal_personal_emails: true,
+      }),
+    });
+
+    if (matchResponse.ok) {
+      const matchData = await matchResponse.json();
+      const enrichedPerson = matchData.person || matchData;
+
+      // Log what we got back for debugging
+      const gotEmail = !!(enrichedPerson.email);
+      const gotLinkedin = !!(enrichedPerson.linkedin_url);
+      console.log(`Enrichment for ${firstName} ${lastName}: email=${gotEmail}, linkedin=${gotLinkedin}, status=${matchResponse.status}`);
+
+      return {
+        name: enrichedPerson.name || person.name || `${firstName} ${lastName}`.trim() || 'Unknown',
+        title: enrichedPerson.title || person.title || person.headline || '',
+        company: (enrichedPerson.organization || {}).name || org.name || person.organization_name || '',
+        email: enrichedPerson.email || searchEmail || '',
+        phone: enrichedPerson.phone_number || enrichedPerson.sanitized_phone || searchPhone || '',
+        linkedinUrl: enrichedPerson.linkedin_url || searchLinkedin || '',
+        location: formatLocation(enrichedPerson) || formatLocation(person) || '',
+        companyDomain: (enrichedPerson.organization || {}).primary_domain || domain || '',
+        companyIndustry: (enrichedPerson.organization || {}).industry || org.industry || '',
+        companySize: (enrichedPerson.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
+        enrichmentStatus: getEnrichmentStatus(enrichedPerson),
+      };
+    } else {
+      const errText = await matchResponse.text().catch(() => '');
+      console.warn(`Apollo enrichment failed for ${firstName} ${lastName}: ${matchResponse.status} ${errText.slice(0, 200)}`);
+      // Fall back to search-only data — but still use any data from the search endpoint
+      const fallback = normalizeSearchPerson(person);
+      fallback.email = searchEmail || fallback.email;
+      fallback.linkedinUrl = searchLinkedin || fallback.linkedinUrl;
+      fallback.phone = searchPhone || fallback.phone;
+      if (fallback.email || fallback.linkedinUrl) fallback.enrichmentStatus = 'partial';
+      return fallback;
+    }
+  } catch (err) {
+    console.warn(`Apollo enrichment error for ${person.name || 'unknown'}:`, err.message);
+    return normalizeSearchPerson(person);
+  }
 }
 
 // ── Format location from person object ──────────────────────────────

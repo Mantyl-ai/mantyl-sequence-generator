@@ -16,22 +16,24 @@ export async function findProspects(icpParams) {
 }
 
 /**
- * Generate sequences with parallel concurrency + retry.
+ * Generate sequences with adaptive rate-limit-aware execution.
  *
- * Strategy: send 1 prospect per Netlify function call (fits safely in 26s
- * timeout) but run CONCURRENCY calls in parallel for speed.
- * If a call fails, retry it once before giving up on that prospect.
- *
- * 20 prospects × 1 per call × 3 concurrent = ~7 rounds × 15s ≈ 2 min
+ * Strategy:
+ *   - Start with 2 parallel workers (fast path for higher-tier API keys)
+ *   - If we hit a 429 rate limit, automatically throttle:
+ *       → pause 60s to let the rate limit window reset
+ *       → add a 10s delay between subsequent calls
+ *   - Each prospect gets 1 Netlify function call (fits in 26s timeout)
+ *   - Failed calls retry up to 3× for rate limits, 1× for other errors
+ *   - Partial results always shown even if some prospects fail
  *
  * @param {Object} params - Full generation params including prospects array
  * @param {Function} onProgress - Callback: (completedCount, totalCount) => void
  * @returns {Promise<Object>} - { sequences, touchpointPlan, partialFailure }
  */
 export async function generateSequence(params, onProgress) {
-  const CONCURRENCY = 3;   // parallel Netlify function calls
-  const MAX_RETRIES = 1;   // retry failed calls once
-  const FETCH_TIMEOUT = 55000; // 55s client timeout (above Netlify's 26s)
+  const INITIAL_CONCURRENCY = 2;
+  const FETCH_TIMEOUT = 55000;
 
   const allProspects = params.prospects || [];
   const totalCount = allProspects.length;
@@ -40,15 +42,32 @@ export async function generateSequence(params, onProgress) {
   let completedCount = 0;
   let hadFailure = false;
 
-  // Build individual tasks — one per prospect
-  const tasks = allProspects.map((_, idx) => idx);
+  // Adaptive rate limiting state (shared across workers)
+  let callDelay = 0;        // ms to wait between calls (increases on 429)
+  let rateLimitHit = false;  // flag to signal workers to slow down
+  let rateLimitPause = null; // promise that resolves after rate limit cooldown
 
-  // Process tasks with concurrency pool
   async function processOne(prospectIdx) {
     const chunk = [allProspects[prospectIdx]];
+    const MAX_RETRIES_429 = 3;
+    const MAX_RETRIES_OTHER = 1;
     let lastErr = null;
+    let attempts = 0;
+    const maxAttempts = MAX_RETRIES_429 + 1; // worst case all 429s
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    while (attempts < maxAttempts) {
+      attempts++;
+
+      // If a rate limit cooldown is in progress, wait for it
+      if (rateLimitPause) {
+        await rateLimitPause;
+      }
+
+      // Respect the adaptive delay between calls
+      if (callDelay > 0) {
+        await sleep(callDelay);
+      }
+
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
@@ -63,13 +82,42 @@ export async function generateSequence(params, onProgress) {
         clearTimeout(timer);
 
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Server error' }));
-          throw new Error(err.error || `API error: ${res.status}`);
+          const errBody = await res.json().catch(() => ({ error: 'Server error' }));
+          const errMsg = errBody.error || `API error: ${res.status}`;
+
+          // Check if this is a rate limit error (429 from Claude API, passed through)
+          const is429 = res.status === 502 || errMsg.includes('429') || errMsg.includes('rate_limit');
+
+          if (is429) {
+            lastErr = new Error(errMsg);
+
+            // Only one worker should trigger the global cooldown
+            if (!rateLimitHit) {
+              rateLimitHit = true;
+              callDelay = 10000; // 10s between calls from now on
+              console.warn(`Rate limit hit on prospect ${prospectIdx + 1}. Pausing 60s and adding ${callDelay / 1000}s delay between calls.`);
+
+              // Create a shared pause promise — all workers wait on this
+              let resolve;
+              rateLimitPause = new Promise(r => { resolve = r; });
+              await sleep(60000); // 60s cooldown
+              resolve();
+              rateLimitPause = null;
+              rateLimitHit = false;
+            } else {
+              // Another worker already triggered cooldown — just wait for it
+              if (rateLimitPause) await rateLimitPause;
+            }
+
+            continue; // retry after cooldown
+          }
+
+          // Non-429 error
+          throw new Error(errMsg);
         }
 
         const data = await res.json();
 
-        // Store result with correct global index
         const seq = (data.sequences || [])[0];
         if (seq) {
           results[prospectIdx] = { ...seq, prospectIndex: prospectIdx };
@@ -77,53 +125,61 @@ export async function generateSequence(params, onProgress) {
         if (!touchpointPlan && data.touchpointPlan) {
           touchpointPlan = data.touchpointPlan;
         }
-        return; // success — exit retry loop
+        return; // success
       } catch (err) {
-        lastErr = err;
-        const isRetryable = attempt < MAX_RETRIES;
-        console.warn(
-          `Prospect ${prospectIdx + 1} attempt ${attempt + 1} failed: ${err.message}` +
-          (isRetryable ? ' — retrying...' : ' — giving up')
-        );
-        if (isRetryable) {
-          // Brief pause before retry
-          await new Promise(r => setTimeout(r, 2000));
+        if (err.name === 'AbortError') {
+          lastErr = new Error('Request timed out');
+        } else {
+          lastErr = err;
         }
+
+        // For non-429 errors, allow 1 retry with brief pause
+        const retriesLeft = MAX_RETRIES_OTHER - (attempts - 1);
+        if (retriesLeft > 0 && !lastErr.message.includes('429')) {
+          console.warn(`Prospect ${prospectIdx + 1} attempt ${attempts} failed: ${lastErr.message} — retrying...`);
+          await sleep(3000);
+          continue;
+        }
+        break; // give up
       }
     }
 
-    // All retries exhausted — mark as failed but don't crash the pipeline
+    // All retries exhausted
     hadFailure = true;
-    console.error(`Prospect ${prospectIdx + 1} failed after retries:`, lastErr?.message);
+    console.error(`Prospect ${prospectIdx + 1} failed after ${attempts} attempts:`, lastErr?.message);
   }
 
-  // Concurrent executor — runs up to CONCURRENCY tasks at once
+  // Worker pool with adaptive concurrency
   async function runPool() {
     let nextIdx = 0;
+    const concurrency = Math.min(INITIAL_CONCURRENCY, totalCount);
 
     async function worker() {
-      while (nextIdx < tasks.length) {
-        const idx = tasks[nextIdx++];
+      while (nextIdx < totalCount) {
+        const idx = nextIdx++;
         await processOne(idx);
         completedCount++;
         if (onProgress) onProgress(completedCount, totalCount);
       }
     }
 
-    const workers = Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, () => worker());
+    const workers = Array.from({ length: concurrency }, () => worker());
     await Promise.all(workers);
   }
 
   await runPool();
 
-  // Collect successful results (filter out nulls from failed prospects)
   const allSequences = results.filter(Boolean);
 
   if (allSequences.length === 0) {
     throw new Error(
-      'All sequence generation attempts failed. This is usually caused by high server load. Please wait a moment and try again.'
+      'All sequence generation attempts failed. This may be due to API rate limits. Please wait a minute and try again with fewer prospects.'
     );
   }
 
   return { sequences: allSequences, touchpointPlan, partialFailure: hadFailure };
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

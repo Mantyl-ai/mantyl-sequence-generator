@@ -52,8 +52,8 @@ export default function App() {
       setProspects(prospectData.prospects)
 
       const totalProspects = prospectData.prospects.length
-      setLoadingMessage(`Writing personalized copy for ${totalProspects} prospects...`)
-      setLoadingSub(`Generating sequences: 0 of ${totalProspects} complete`)
+      setLoadingMessage(`Writing personalized sequences for ${totalProspects} prospects...`)
+      setLoadingSub(`Starting generation...`)
 
       const seqData = await generateSequence({
         prospects: prospectData.prospects,
