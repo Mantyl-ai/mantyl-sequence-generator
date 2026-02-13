@@ -124,26 +124,41 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Hero Section ────────────────────────────────── */}
+      {/* ── Hero Section — Compact Aurora Style ─────────── */}
       <section className="hero">
-        {/* Animated gradient mesh background */}
-        <div className="hero-mesh" />
-        <div className="hero-mesh-2" />
+        {/* Aurora gradient blobs */}
+        <div className="aurora-blob aurora-1" />
+        <div className="aurora-blob aurora-2" />
+        <div className="aurora-blob aurora-3" />
 
-        {/* Floating orbs */}
-        <div className="hero-orbs">
-          <div className="orb orb-1" />
-          <div className="orb orb-2" />
-          <div className="orb orb-3" />
-          <div className="orb orb-4" />
-        </div>
+        {/* Animated beam lines */}
+        <svg className="hero-beams" viewBox="0 0 1200 300" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="beam-grad-1" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="rgba(107,138,219,0)" />
+              <stop offset="50%" stopColor="rgba(107,138,219,0.3)" />
+              <stop offset="100%" stopColor="rgba(155,127,199,0)" />
+            </linearGradient>
+            <linearGradient id="beam-grad-2" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="rgba(155,127,199,0)" />
+              <stop offset="50%" stopColor="rgba(212,132,154,0.25)" />
+              <stop offset="100%" stopColor="rgba(232,158,108,0)" />
+            </linearGradient>
+            <linearGradient id="beam-grad-3" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="rgba(232,158,108,0)" />
+              <stop offset="50%" stopColor="rgba(107,138,219,0.2)" />
+              <stop offset="100%" stopColor="rgba(155,127,199,0)" />
+            </linearGradient>
+          </defs>
+          <path className="beam beam-1" d="M-100,180 Q300,80 600,150 T1300,100" stroke="url(#beam-grad-1)" strokeWidth="1" fill="none" />
+          <path className="beam beam-2" d="M-100,220 Q400,120 700,200 T1300,140" stroke="url(#beam-grad-2)" strokeWidth="1" fill="none" />
+          <path className="beam beam-3" d="M-100,140 Q200,200 500,130 T1300,180" stroke="url(#beam-grad-3)" strokeWidth="0.8" fill="none" />
+          <path className="beam beam-4" d="M-100,260 Q350,160 650,240 T1300,170" stroke="url(#beam-grad-1)" strokeWidth="0.6" fill="none" />
+          <path className="beam beam-5" d="M-100,100 Q250,180 550,110 T1300,200" stroke="url(#beam-grad-2)" strokeWidth="0.7" fill="none" />
+        </svg>
 
-        {/* Grid pattern overlay */}
-        <div className="hero-grid-pattern" />
-
-        {/* Glow effects */}
-        <div className="hero-glow" />
-        <div className="hero-glow-2" />
+        {/* Dot grid overlay */}
+        <div className="hero-dot-grid" />
 
         <div className="hero-content">
           <div className="hero-eyebrow">
@@ -151,61 +166,38 @@ export default function App() {
               <span className="eyebrow-pulse" />
               AI Agent
             </span>
-            <span className="eyebrow-divider">·</span>
-            Outbound Automation
           </div>
           <h1>
-            Your ICP. Our AI.
-            <br />
-            <span className="hero-gradient-text">Sequences in Seconds.</span>
+            <span className="hero-gradient-text hero-shimmer">Sequences in Seconds.</span>
           </h1>
           <p className="hero-subtitle">
-            Define your ideal customer profile — our AI agent finds real prospects, enriches contact data, and writes personalized multi-channel sequences ready to launch.
+            Define your ICP. Our AI finds prospects, enriches data, and writes multi-channel sequences — ready to launch.
           </p>
-          <div className="hero-stats">
-            <div className="hero-stat">
-              <span className="stat-icon">🌐</span>
-              <div className="stat-text">
-                <span className="stat-number">270M+</span>
-                <span className="stat-label">Contacts</span>
-              </div>
-            </div>
-            <div className="hero-stat-divider" />
-            <div className="hero-stat">
-              <span className="stat-icon">📡</span>
-              <div className="stat-text">
-                <span className="stat-number">3</span>
-                <span className="stat-label">Channels</span>
-              </div>
-            </div>
-            <div className="hero-stat-divider" />
-            <div className="hero-stat">
-              <span className="stat-icon">⚡</span>
-              <div className="stat-text">
-                <span className="stat-number">&lt;60s</span>
-                <span className="stat-label">Generation</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Progress Steps */}
-        <div className="progress-bar">
-          <div className={`progress-step ${step === 'form' ? 'active' : (step !== 'form' ? 'completed' : '')}`}>
-            <span className="progress-num">{step !== 'form' ? '✓' : '1'}</span>
-            Define ICP
-          </div>
-          <div className="progress-connector" />
-          <div className={`progress-step ${step === 'loading' ? 'active' : (step === 'results' ? 'completed' : '')}`}>
-            <span className="progress-num">{step === 'results' ? '✓' : '2'}</span>
-            Find & Enrich
-          </div>
-          <div className="progress-connector" />
-          <div className={`progress-step ${step === 'results' ? 'completed' : ''}`}>
-            <span className="progress-num">{step === 'results' ? '✓' : '3'}</span>
-            Generate Copy
+          <div className="hero-chips">
+            <span className="hero-chip"><span className="chip-dot" />270M+ contacts</span>
+            <span className="hero-chip"><span className="chip-dot" />3 channels</span>
+            <span className="hero-chip"><span className="chip-dot" />&lt;60s generation</span>
           </div>
         </div>
       </section>
+
+      {/* ── Floating Progress Indicator ──────────────── */}
+      <div className="progress-bar">
+        <div className={`progress-step ${step === 'form' ? 'active' : (step !== 'form' ? 'completed' : '')}`}>
+          <span className="progress-num">{step !== 'form' ? '✓' : '1'}</span>
+          Define ICP
+        </div>
+        <div className="progress-connector" />
+        <div className={`progress-step ${step === 'loading' ? 'active' : (step === 'results' ? 'completed' : '')}`}>
+          <span className="progress-num">{step === 'results' ? '✓' : '2'}</span>
+          Find & Enrich
+        </div>
+        <div className="progress-connector" />
+        <div className={`progress-step ${step === 'results' ? 'completed' : ''}`}>
+          <span className="progress-num">{step === 'results' ? '✓' : '3'}</span>
+          Generate Copy
+        </div>
+      </div>
 
       <main className="main">
         {error && (
