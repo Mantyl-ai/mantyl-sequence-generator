@@ -428,20 +428,47 @@ export default function ICPForm({ onSubmit, isLoading }) {
             </div>
           </div>
           <div className="form-group">
-            <label>Channels <RequiredAsterisk /></label>
-            <div className="checkbox-group">
+            <label>Channels <RequiredAsterisk /> <span className="section-subtitle">— click in the order you want them sequenced</span></label>
+            <div className="channel-order-group">
               {[
                 { id: 'email', label: 'Email', iconName: 'mail' },
                 { id: 'linkedin', label: 'LinkedIn', iconName: 'linkedin' },
                 { id: 'calling', label: 'Calling', iconName: 'phone' },
-              ].map(ch => (
-                <label key={ch.id} className={`checkbox-label ${form.channels.includes(ch.id) ? 'checked' : ''}`}>
-                  <input type="checkbox" checked={form.channels.includes(ch.id)} onChange={() => toggleChannel(ch.id)} />
-                  <span className="checkbox-icon" />
-                  <SvgIcon name={ch.iconName} size={14} /> {ch.label}
-                </label>
-              ))}
+              ].map(ch => {
+                const orderIndex = form.channels.indexOf(ch.id)
+                const isSelected = orderIndex !== -1
+                return (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    className={`channel-order-btn ${isSelected ? 'selected' : ''}`}
+                    onClick={() => toggleChannel(ch.id)}
+                  >
+                    <span className={`channel-order-badge ${isSelected ? 'active' : ''}`}>
+                      {isSelected ? orderIndex + 1 : ''}
+                    </span>
+                    <SvgIcon name={ch.iconName} size={16} />
+                    <span className="channel-order-label">{ch.label}</span>
+                    {isSelected && form.channels.length > 1 && orderIndex === 0 && (
+                      <span className="channel-primary-tag">Primary</span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
+            {form.channels.length > 1 && (
+              <div className="channel-order-hint">
+                Touchpoints will rotate: {form.channels.map((ch, i) => (
+                  <span key={ch} className="channel-order-hint-item">
+                    {i > 0 && ' → '}
+                    {ch.charAt(0).toUpperCase() + ch.slice(1)}
+                  </span>
+                ))}
+                {' → '}
+                <span className="channel-order-hint-item">{form.channels[0].charAt(0).toUpperCase() + form.channels[0].slice(1)}</span>
+                <span className="channel-order-hint-dots"> …</span>
+              </div>
+            )}
           </div>
           <div className="form-group full-width">
             <label>Copy Tone <RequiredAsterisk /></label>
@@ -533,10 +560,8 @@ function buildPreviewSteps(count, channels, spacing) {
     const day = 1 + i * spacing
     const position = i / (count - 1 || 1)
     const stage = position <= 0.3 ? 'opening' : position <= 0.7 ? 'value_add' : 'closing'
-    let channel
-    if (i === 0) channel = 'email'
-    else if (i === count - 1 && available.includes('calling')) channel = 'calling'
-    else channel = available[i % available.length]
+    // Respect user-defined channel order — cycle through in the order they clicked
+    const channel = available[i % available.length]
     steps.push({ day, stage, channel })
   }
   return steps

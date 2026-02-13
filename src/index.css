@@ -497,65 +497,97 @@ body {
   margin-left: 4px;
 }
 
-/* Checkbox group */
-.checkbox-group {
+/* Channel Order Group */
+.channel-order-group {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
-.checkbox-label {
+.channel-order-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 8px 16px;
-  border: 1px solid #e2e8f0;
+  gap: 10px;
+  padding: 10px 18px;
+  border: 1.5px solid #e2e8f0;
   border-radius: var(--radius-sm);
+  background: var(--white);
+  cursor: pointer;
+  font-family: var(--font);
   font-size: 14px;
   font-weight: 500;
-  color: var(--navy);
+  color: var(--navy-lighter);
   transition: all 0.15s ease;
+  outline: none;
   user-select: none;
+  position: relative;
 }
 
-.checkbox-label:hover {
+.channel-order-btn:hover {
   border-color: var(--accent-blue);
   background: var(--bg-blue);
+  color: var(--navy);
 }
 
-.checkbox-label.checked {
+.channel-order-btn.selected {
   border-color: var(--accent-blue);
-  background: rgba(107, 138, 219, 0.08);
+  background: rgba(107, 138, 219, 0.06);
   color: var(--accent-blue);
+  font-weight: 600;
 }
 
-.checkbox-label input[type="checkbox"] {
-  display: none;
-}
-
-.checkbox-icon {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #cbd5e1;
-  border-radius: 4px;
+.channel-order-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.checkbox-label.checked .checkbox-icon {
-  background: var(--accent-blue);
-  border-color: var(--accent-blue);
-}
-
-.checkbox-label.checked .checkbox-icon::after {
-  content: '✓';
-  color: white;
   font-size: 11px;
   font-weight: 700;
+  flex-shrink: 0;
+  border: 2px solid #cbd5e1;
+  color: transparent;
+  background: var(--white);
+  transition: all 0.15s ease;
+}
+
+.channel-order-badge.active {
+  border-color: var(--accent-blue);
+  background: var(--accent-blue);
+  color: var(--white);
+}
+
+.channel-order-label {
+  white-space: nowrap;
+}
+
+.channel-primary-tag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--white);
+  background: var(--accent-blue);
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-left: 2px;
+}
+
+.channel-order-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.channel-order-hint-item {
+  font-weight: 500;
+  color: var(--accent-blue);
+}
+
+.channel-order-hint-dots {
+  color: #cbd5e1;
 }
 
 /* Range input */
