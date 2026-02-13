@@ -12,7 +12,12 @@ export async function findProspects(icpParams) {
     throw new Error(err.error || `API error: ${res.status}`);
   }
 
-  return res.json();
+  const data = await res.json();
+  // Debug: log what Apollo returned so we can see field availability
+  if (data._debug) {
+    console.log('[Apollo Debug]', JSON.stringify(data._debug, null, 2));
+  }
+  return data;
 }
 
 /**

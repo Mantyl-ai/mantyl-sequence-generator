@@ -25,16 +25,17 @@ export async function handler(event) {
     // Cap at 15 prospects
     const count = Math.min(parseInt(prospectCount) || 10, 15);
 
-    // ── Step 1: Search for people via Apollo (FREE — no credits) ─────
+    // ── Step 1: Search for people via Apollo ─────────────────────────
     const apolloFilters = buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack });
 
-    const apolloResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
+    const apolloResponse = await fetch('https://api.apollo.io/v1/mixed_people/search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': APOLLO_API_KEY,
+        'Cache-Control': 'no-cache',
       },
       body: JSON.stringify({
+        api_key: APOLLO_API_KEY,
         per_page: count,
         page: 1,
         ...apolloFilters,
@@ -65,21 +66,23 @@ export async function handler(event) {
       throw new Error('Apollo API returned an unexpected data structure');
     }
 
-    // Log first person to understand the raw data structure
+    // Log first person — dump ALL keys so we can see exactly what Apollo returns
+    let debugInfo = {};
     if (rawPeople.length > 0) {
       const sample = rawPeople[0];
-      console.log(`Apollo search returned ${rawPeople.length} people. Sample fields for "${sample.name || sample.first_name}":`,
-        JSON.stringify({
-          email: sample.email,
-          linkedin_url: sample.linkedin_url,
-          phone_numbers: sample.phone_numbers,
-          phone_number: sample.phone_number,
-          sanitized_phone: sample.sanitized_phone,
-          organization: sample.organization ? { name: sample.organization.name, primary_domain: sample.organization.primary_domain } : null,
-        })
-      );
+      const allKeys = Object.keys(sample);
+      console.log(`Apollo search returned ${rawPeople.length} people. First person ALL KEYS: ${JSON.stringify(allKeys)}`);
+      console.log(`First person FULL DATA: ${JSON.stringify(sample).slice(0, 2000)}`);
+      debugInfo = {
+        searchResultKeys: allKeys,
+        sampleLinkedin: sample.linkedin_url,
+        sampleEmail: sample.email,
+        samplePhoneNumbers: sample.phone_numbers,
+        responseTopKeys: Object.keys(apolloData),
+      };
     } else {
       console.warn('Apollo search returned 0 people');
+      debugInfo = { warning: 'no people returned', responseTopKeys: Object.keys(apolloData) };
     }
 
     // ── Step 2: Enrich each person via Apollo Match (1 credit/person) ─
@@ -103,6 +106,7 @@ export async function handler(event) {
       prospects,
       total: prospects.length,
       source: CLAY_WEBHOOK_URL ? 'apollo+clay' : 'apollo',
+      _debug: debugInfo,
     });
 
   } catch (err) {
@@ -149,11 +153,11 @@ async function enrichOnePerson(person, apiKey) {
     console.log(`Search data for ${firstName} ${lastName}: email="${searchEmail}", linkedin="${searchLinkedin}", phone="${searchPhone}"`);
 
     // Call Apollo People Match endpoint to get contact details (1 credit/person)
-    const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
+    const matchResponse = await fetch('https://api.apollo.io/v1/people/match', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'Cache-Control': 'no-cache',
       },
       body: JSON.stringify({
         api_key: apiKey,
