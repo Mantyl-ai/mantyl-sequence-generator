@@ -2,19 +2,15 @@
 // POST: Apollo sends waterfall phone data here after /people/match enrichment
 // GET:  Frontend polls this same function to retrieve stored phone data
 //
-// Using Netlify Blobs for storage — persists across Lambda instances.
-// /tmp/ does NOT work because POST (webhook) and GET (polling) can hit
-// different Lambda instances, each with their own /tmp.
+// Storage: Upstash Redis (free tier, REST API, no SDK needed).
+// Netlify Blobs was tried but fails due to esbuild bundling stripping runtime context.
+// Upstash Redis works reliably in any serverless environment via simple HTTP calls.
 //
 // Apollo waterfall payload format:
 // { people: [{ id, waterfall: { phone_numbers: [{ vendors: [{ phone_numbers: [...], status }] }] } }] }
 
-import { getStore } from '@netlify/blobs';
-
-const STORE_NAME = 'phone-data';
-// Strong consistency ensures webhook POST writes are immediately visible
-// to frontend GET polls — critical since they run on different Lambda instances.
-const STORE_OPTIONS = { name: STORE_NAME, consistency: 'strong' };
+// Redis key TTL: 1 hour (phone polling only runs 5 min, this is generous)
+const TTL_SECONDS = 3600;
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -27,13 +23,13 @@ export async function handler(event) {
   if (event.httpMethod === 'GET') {
     if (!sessionId) return respond(400, { error: 'Missing sessionId' });
 
-    const blobAvailable = !!getStoreInstance();
+    const storageOk = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
     const data = await readStore(sessionId);
     return respond(200, {
       phones: data.phones || {},
       totalReceived: data.totalReceived || 0,
       status: data.totalReceived > 0 ? 'has_data' : 'waiting',
-      blobAvailable, // Debug: shows if Netlify Blobs is working
+      storageOk, // Debug: true if Upstash credentials are configured
     });
   }
 
@@ -55,7 +51,6 @@ export async function handler(event) {
     const people = body.people || [];
     if (people.length === 0) {
       console.log('[phone-webhook] No people in payload, checking alternate format');
-      // Try alternate format: body itself might be the person
       const altPerson = body.person || body;
       if (altPerson.id || altPerson.phone_numbers) {
         people.push(altPerson);
@@ -105,12 +100,10 @@ export async function handler(event) {
 
       // Pick best phone: prefer shorter numbers (direct lines), skip extensions
       const cleanPhones = verifiedPhones
-        .map(p => p.replace(/\s*x\d+$/, '').trim()) // Remove extensions like "x6192"
+        .map(p => p.replace(/\s*x\d+$/, '').trim())
         .filter(p => p.length >= 10);
       const bestPhone = cleanPhones[0] || verifiedPhones[0] || (allPhones[0]?.number) || '';
 
-      // Determine phone type from flat phone_numbers array if available
-      // Waterfall phones don't have type, but flat phone_numbers do ("work_direct" or "mobile")
       let phoneType = '';
       if (flatPhones.length > 0) {
         phoneType = flatPhones[0].type || '';
@@ -121,7 +114,7 @@ export async function handler(event) {
       results.push({ personId, name: personName, email: personEmail, linkedin: personLinkedin, phone: bestPhone, phoneType, allPhones, verifiedPhones });
     }
 
-    // ── Store results in Netlify Blobs (shared across all Lambda instances) ──
+    // ── Store results in Upstash Redis ──
     const existing = await readStore(sessionId);
 
     for (const r of results) {
@@ -152,52 +145,63 @@ export async function handler(event) {
   }
 }
 
-// ── Netlify Blobs storage helpers ──
-// @netlify/blobs must be external_node_modules in netlify.toml (not bundled by esbuild)
-// so it can detect the Netlify runtime environment for authentication.
-function getStoreInstance() {
+// ── Upstash Redis REST storage helpers ──
+// Uses simple HTTP calls — no SDK, no bundling issues.
+// Free tier: 10,000 requests/day (plenty for phone polling).
+// Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Netlify env vars.
+
+async function redisCommand(args) {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (!url || !token) {
+    console.warn('[phone-webhook] Upstash Redis not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Netlify env vars.');
+    return null;
+  }
+
   try {
-    const store = getStore(STORE_OPTIONS);
-    return store;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(args),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[phone-webhook] Redis error: ${res.status} ${errText}`);
+      return null;
+    }
+
+    const data = await res.json();
+    return data.result;
   } catch (e) {
-    console.error(`[phone-webhook] getStore() FAILED: ${e.message}. Netlify Blobs may not be available. Check netlify.toml has external_node_modules = ["@netlify/blobs"]`);
-    console.error(`[phone-webhook] Environment check: NETLIFY=${process.env.NETLIFY}, DEPLOY_ID=${process.env.DEPLOY_ID}, CONTEXT=${process.env.CONTEXT}`);
+    console.error(`[phone-webhook] Redis fetch error: ${e.message}`);
     return null;
   }
 }
 
 async function readStore(sessionId) {
-  const store = getStoreInstance();
-  if (!store) return { phones: {}, totalReceived: 0 };
-
-  try {
-    const data = await store.get(sessionId, { type: 'json' });
-    if (data) {
-      console.log(`[phone-webhook] Blob read OK for session ${sessionId}: ${Object.keys(data.phones || {}).length} phone entries`);
-      return data;
+  const key = `phone:${sessionId}`;
+  const raw = await redisCommand(['GET', key]);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      console.warn(`[phone-webhook] Failed to parse Redis data for ${sessionId}:`, e.message);
     }
-    console.log(`[phone-webhook] Blob read: no data yet for session ${sessionId}`);
-  } catch (e) {
-    console.warn(`[phone-webhook] Blob read error for session ${sessionId}:`, e.message);
   }
   return { phones: {}, totalReceived: 0 };
 }
 
 async function writeStore(sessionId, data) {
-  const store = getStoreInstance();
-  if (!store) {
-    console.error(`[phone-webhook] Cannot write — blob store unavailable for session ${sessionId}`);
-    return false;
-  }
-
-  try {
-    await store.setJSON(sessionId, data);
-    console.log(`[phone-webhook] Blob write OK for session ${sessionId}: ${Object.keys(data.phones || {}).length} phone entries`);
-    return true;
-  } catch (e) {
-    console.error(`[phone-webhook] Blob write error for session ${sessionId}:`, e.message);
-    return false;
-  }
+  const key = `phone:${sessionId}`;
+  const value = JSON.stringify(data);
+  // SET with EX (expiry in seconds) — auto-cleanup after 1 hour
+  const result = await redisCommand(['SET', key, value, 'EX', TTL_SECONDS]);
+  return result === 'OK';
 }
 
 function extractSessionId(event) {
