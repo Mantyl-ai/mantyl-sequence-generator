@@ -21,6 +21,7 @@ export async function handler(event) {
       daySpacing = 3,
       emailSendType = 'manual',
       sender = {},
+      tones,
       tone = 'professional',
       productDescription = '',
       painPoint = '',
@@ -42,7 +43,7 @@ export async function handler(event) {
       const batch = prospects.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((prospect, batchIdx) =>
-          generateProspectSequence(ANTHROPIC_API_KEY, prospect, touchpointPlan, i + batchIdx, sender, emailSendType, tone, { productDescription, painPoint, proposedSolution, openToLearnMore })
+          generateProspectSequence(ANTHROPIC_API_KEY, prospect, touchpointPlan, i + batchIdx, sender, emailSendType, tones || [tone], { productDescription, painPoint, proposedSolution, openToLearnMore })
         )
       );
       allSequences.push(...batchResults);
@@ -57,7 +58,7 @@ export async function handler(event) {
 
 function buildTouchpointPlan(count, channels, daySpacing) {
   const plan = [];
-  const totalSteps = Math.min(parseInt(count) || 6, 12);
+  const totalSteps = Math.min(parseInt(count) || 6, 20);
   const spacing = parseInt(daySpacing) || 3;
   const availableChannels = channels.filter(c => ['email', 'linkedin', 'calling'].includes(c));
   if (availableChannels.length === 0) availableChannels.push('email');
@@ -78,20 +79,38 @@ function buildTouchpointPlan(count, channels, daySpacing) {
   return plan;
 }
 
-async function generateProspectSequence(apiKey, prospect, touchpointPlan, prospectIndex, sender, emailSendType, tone, messagingContext) {
+async function generateProspectSequence(apiKey, prospect, touchpointPlan, prospectIndex, sender, emailSendType, tones, messagingContext) {
   const totalSteps = touchpointPlan.length;
 
   // Build sender sign-off block
   const senderSignoff = buildSenderSignoff(sender);
-  const sendStyleNote = emailSendType === 'automated'
-    ? `EMAIL SEND TYPE: AUTOMATED — These emails will be sent via a sequencing tool (Outreach, Salesloft, Apollo, etc.). Write them to feel natural at scale. Use merge-field-friendly language. Avoid overly specific time references like "I just saw" or "this morning". Keep tone warm but systematic. Do NOT include a typed signature — it will be appended automatically by the platform.`
-    : `EMAIL SEND TYPE: MANUAL — These emails will be sent personally 1:1 from the sender's inbox. Write them to feel genuinely personal, conversational, and hand-typed. Use casual time references. It's okay to reference specific details. End each email with a natural sign-off from the sender.`;
 
+  // Send style note — supports manual, automated, and combo
+  let sendStyleNote;
+  if (emailSendType === 'automated') {
+    sendStyleNote = `EMAIL SEND TYPE: AUTOMATED — These emails will be sent via a sequencing tool (Outreach, Salesloft, Apollo, etc.). Write them to feel natural at scale. Use merge-field-friendly language. Avoid overly specific time references like "I just saw" or "this morning". Keep tone warm but systematic. Do NOT include a typed signature — it will be appended automatically by the platform.`;
+  } else if (emailSendType === 'combo') {
+    sendStyleNote = `EMAIL SEND TYPE: MANUAL + AUTOMATED COMBO — This sequence uses a mix of both personal 1:1 sends and automated sequenced sends. For the first 1 to 2 email touchpoints (opening stage), write them as if they will be sent manually from the sender's inbox: genuinely personal, conversational, hand-typed feel, with a natural sign-off. For later email touchpoints (value_add and closing stages), write them for automated sending: natural at scale, merge-field-friendly, no overly specific time references, no typed signature.`;
+  } else {
+    sendStyleNote = `EMAIL SEND TYPE: MANUAL — These emails will be sent personally 1:1 from the sender's inbox. Write them to feel genuinely personal, conversational, and hand-typed. Use casual time references. It's okay to reference specific details. End each email with a natural sign-off from the sender.`;
+  }
+
+  // Tone instructions — supports multi-tone blending
   const toneInstructions = {
-    professional: `TONE: PROFESSIONAL — Write in a polished, executive ready tone. Use complete sentences, proper grammar, and a confident but respectful voice. Suitable for C suite and senior leadership outreach.`,
-    casual: `TONE: CASUAL — Write in a friendly, conversational tone. Use contractions, informal language, and a warm approachable voice. Feel like a peer reaching out, not a salesperson. Keep it human and natural.`,
-    simple: `TONE: SIMPLE — Write in short, direct sentences. No fluff, no filler words, no unnecessary adjectives. Get to the point fast. Every word should earn its place. Think text message brevity but professional.`,
+    professional: `PROFESSIONAL — Polished, executive ready tone. Complete sentences, proper grammar, confident but respectful voice. Suitable for C suite and senior leadership.`,
+    casual: `CASUAL — Friendly, conversational tone. Use contractions, informal language, warm approachable voice. Feel like a peer reaching out, not a salesperson.`,
+    simple: `SIMPLE — Short, direct sentences. No fluff, no filler words, no unnecessary adjectives. Get to the point fast. Every word earns its place.`,
   };
+
+  // Build tone section based on selected tones (single or blended)
+  const activeTones = Array.isArray(tones) && tones.length > 0 ? tones : ['professional'];
+  let toneSection;
+  if (activeTones.length === 1) {
+    toneSection = `TONE: ${toneInstructions[activeTones[0]] || toneInstructions.professional}`;
+  } else {
+    const toneDescs = activeTones.map(t => toneInstructions[t]).filter(Boolean);
+    toneSection = `TONE: Use a BLEND of the following tones. Weave them together naturally throughout the sequence:\n${toneDescs.map(d => `- ${d}`).join('\n')}`;
+  }
 
   // Build messaging context section
   const contextParts = [];
@@ -107,7 +126,7 @@ async function generateProspectSequence(apiKey, prospect, touchpointPlan, prospe
 
 CRITICAL FORMATTING RULE: NEVER use dashes, hyphens, em dashes, or en dashes anywhere in the copy. Not in sentences, not between words, not for emphasis, not for lists. Use commas, periods, colons, or separate sentences instead. This rule applies to subject lines, email bodies, LinkedIn messages, and call scripts.
 
-${toneInstructions[tone] || toneInstructions.professional}
+${toneSection}
 
 SENDER INFO:
 Name: ${sender.name || 'Sales Rep'}
@@ -140,7 +159,7 @@ STAGE GUIDELINES:
 - Closing: Make a specific ask (demo, call, meeting).${sender.calendly ? ` Include the booking link: ${sender.calendly}` : ''} Create urgency without being pushy.
 
 CHANNEL FORMATS:
-- email: Provide "subject" and "body" fields. Subject under 60 chars. Body under 120 words. ${emailSendType === 'manual' ? 'Include the sender sign-off at the end of the body.' : 'Do NOT include a signature — it will be appended automatically.'}
+- email: Provide "subject" and "body" fields. Subject under 60 chars. Body under 120 words. ${emailSendType === 'manual' ? 'Include the sender sign-off at the end of the body.' : emailSendType === 'combo' ? 'For early manual-style emails, include the sender sign-off. For later automated-style emails, do NOT include a signature.' : 'Do NOT include a signature — it will be appended automatically.'}
 - linkedin: Provide "message" field. Under 300 characters for connection requests, under 500 chars for messages. Sign off with sender's first name.
 - calling: Provide "script" field. A brief opening script under 80 words. Start with "Hi {prospect first name}, this is {sender name} from {sender company}..."
 

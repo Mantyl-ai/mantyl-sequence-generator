@@ -32,13 +32,20 @@ export async function handler(event) {
 
   try {
     const body = JSON.parse(event.body);
-    const { industry, companySegment, companySize, jobTitles, geography, techStack, otherCriteria, prospectCount = 10 } = body;
+    // Support both new multi-select arrays and legacy single-value strings
+    const {
+      industries, industry,
+      companySegments, companySegment,
+      companySizes, companySize,
+      geographies, geography,
+      jobTitles, techStack, otherCriteria, prospectCount = 10
+    } = body;
 
-    // Cap at 15 prospects
-    const count = Math.min(parseInt(prospectCount) || 10, 15);
+    // Cap at 20 prospects
+    const count = Math.min(parseInt(prospectCount) || 10, 20);
 
     // ── Step 1: Search for people via Apollo ─────────────────────────
-    const apolloFilters = buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack, otherCriteria });
+    const apolloFilters = buildApolloFilters({ industries, industry, companySegments, companySegment, companySizes, companySize, jobTitles, geographies, geography, techStack, otherCriteria });
 
     const apolloResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
       method: 'POST',
@@ -483,7 +490,7 @@ function normalizeSearchPerson(person) {
 }
 
 // ── Apollo filter builder ────────────────────────────────────────────
-function buildApolloFilters({ industry, companySegment, companySize, jobTitles, geography, techStack, otherCriteria }) {
+function buildApolloFilters({ industries, industry, companySegments, companySegment, companySizes, companySize, jobTitles, geographies, geography, techStack, otherCriteria }) {
   const filters = {};
 
   // Job titles → person_titles array
@@ -496,75 +503,110 @@ function buildApolloFilters({ industry, companySegment, companySize, jobTitles, 
     }
   }
 
-  // Industry → q_organization_keyword_tags (ARRAY of company-level keyword tags)
-  // IMPORTANT: q_keywords searches person profiles (titles, descriptions), NOT company industry.
-  // q_organization_keyword_tags searches company-level keyword tags — which is what we need.
-  // Apollo treats these as OR — any matching tag will include the company.
-  // We split our compound industry names into individual keywords for broader matching.
-  if (industry && industry.trim() && industry.trim().toLowerCase() !== 'other') {
-    const industryTags = industry
-      .split(/\s*[\/&–—]\s*/)          // Split on " / ", " & ", " – ", " — " separators
-      .map(tag => tag.trim())
-      .filter(tag => tag.length > 1);  // Drop single-char noise like "L", "D" from "L&D"
+  // Industries → q_organization_keyword_tags (ARRAY of company-level keyword tags)
+  // Supports both multi-select array (new) and single string (legacy)
+  const industryList = Array.isArray(industries) && industries.length > 0
+    ? industries
+    : (industry && industry.trim() ? [industry.trim()] : []);
 
+  if (industryList.length > 0) {
+    const industryTags = [];
+    for (const ind of industryList) {
+      if (ind.toLowerCase() === 'other') continue;
+      const tags = ind
+        .split(/\s*[\/&–—]\s*/)
+        .map(tag => tag.trim())
+        .filter(tag => tag.length > 1);
+      industryTags.push(...tags);
+    }
     if (industryTags.length > 0) {
-      filters.q_organization_keyword_tags = industryTags;
+      filters.q_organization_keyword_tags = [...new Set(industryTags)];
     }
   }
 
-  // Company size → organization_num_employees_ranges
-  if (companySize) {
-    const sizeMap = {
-      '1-10':        ['1,10'],
-      '11-20':       ['11,20'],
-      '21-50':       ['21,50'],
-      '51-100':      ['51,100'],
-      '101-200':     ['101,200'],
-      '201-500':     ['201,500'],
-      '501-1,000':   ['501,1000'],
-      '1,001-2,000': ['1001,2000'],
-      '2,001-5,000': ['2001,5000'],
-      '5,001-10,000':['5001,10000'],
-      '10,001+':     ['10001,'],
-    };
-    if (sizeMap[companySize]) {
-      filters.organization_num_employees_ranges = sizeMap[companySize];
-    }
-  } else if (companySegment) {
-    const segmentMap = {
-      'SMB':        ['1,200'],
-      'Midmarket':  ['201,1000'],
-      'Enterprise': ['1001,'],
-    };
-    if (segmentMap[companySegment]) {
-      filters.organization_num_employees_ranges = segmentMap[companySegment];
-    }
+  // Company sizes + segments → organization_num_employees_ranges
+  // Apollo's official API expects HYPHENATED predefined ranges: "1-10", "11-20", "51-100", "10001+"
+  // Segments expand to multiple predefined ranges (e.g. SMB = 1-10 through 101-200)
+  const sizeMap = {
+    '1-10':        '1-10',
+    '11-20':       '11-20',
+    '21-50':       '21-50',
+    '51-100':      '51-100',
+    '101-200':     '101-200',
+    '201-500':     '201-500',
+    '501-1,000':   '501-1000',
+    '1,001-2,000': '1001-2000',
+    '2,001-5,000': '2001-5000',
+    '5,001-10,000':'5001-10000',
+    '10,001+':     '10001+',
+  };
+  // Segments expand to ALL matching predefined Apollo ranges
+  const segmentRanges = {
+    'SMB':        ['1-10', '11-20', '21-50', '51-100', '101-200'],
+    'Midmarket':  ['201-500', '501-1000'],
+    'Enterprise': ['1001-2000', '2001-5000', '5001-10000', '10001+'],
+  };
+
+  const employeeRanges = new Set();
+
+  // Multi-select sizes (new)
+  const sizeList = Array.isArray(companySizes) && companySizes.length > 0
+    ? companySizes
+    : (companySize ? [companySize] : []);
+  for (const s of sizeList) {
+    if (sizeMap[s]) employeeRanges.add(sizeMap[s]);
+  }
+
+  // Multi-select segments — each segment expands to multiple predefined ranges
+  const segList = Array.isArray(companySegments) && companySegments.length > 0
+    ? companySegments
+    : (companySegment ? [companySegment] : []);
+  for (const seg of segList) {
+    const ranges = segmentRanges[seg];
+    if (ranges) ranges.forEach(r => employeeRanges.add(r));
+  }
+
+  if (employeeRanges.size > 0) {
+    filters.organization_num_employees_ranges = [...employeeRanges];
   }
 
   // Geography → person_locations
-  // Expand abstract region names to country lists Apollo understands
-  if (geography) {
-    const regionExpansion = {
-      'Global':         ['United States', 'United Kingdom', 'Germany', 'Canada', 'Australia', 'France', 'India'],
-      'Americas':       ['United States', 'Canada', 'Brazil', 'Mexico', 'Argentina', 'Colombia', 'Chile'],
-      'Latin America':  ['Brazil', 'Mexico', 'Argentina', 'Colombia', 'Chile', 'Peru'],
-      'EMEA':           ['United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy', 'Switzerland', 'Israel', 'United Arab Emirates', 'South Africa'],
-      'Nordics':        ['Sweden', 'Norway', 'Denmark', 'Finland'],
-      'Eastern Europe': ['Poland', 'Czech Republic', 'Romania', 'Hungary', 'Ukraine'],
-      'Middle East':    ['United Arab Emirates', 'Saudi Arabia', 'Israel', 'Qatar', 'Bahrain', 'Kuwait'],
-      'Africa':         ['South Africa', 'Nigeria', 'Kenya', 'Egypt', 'Ghana'],
-      'APAC':           ['Australia', 'Japan', 'India', 'South Korea', 'Singapore', 'China', 'New Zealand'],
-      'Southeast Asia': ['Singapore', 'Indonesia', 'Philippines', 'Thailand', 'Vietnam', 'Malaysia'],
-      // US regional — use just "United States" since Apollo handles country-level well
-      'United States, Northeast': ['United States'],
-      'United States, Southeast': ['United States'],
-      'United States, Midwest':   ['United States'],
-      'United States, West':      ['United States'],
-      'United States, Southwest': ['United States'],
-    };
-    const geoTrimmed = geography.trim();
-    const expanded = regionExpansion[geoTrimmed];
-    filters.person_locations = expanded || [geoTrimmed];
+  // Supports both multi-select array (new) and single string (legacy)
+  const regionExpansion = {
+    'Global':         ['United States', 'United Kingdom', 'Germany', 'Canada', 'Australia', 'France', 'India'],
+    'Americas':       ['United States', 'Canada', 'Brazil', 'Mexico', 'Argentina', 'Colombia', 'Chile'],
+    'Latin America':  ['Brazil', 'Mexico', 'Argentina', 'Colombia', 'Chile', 'Peru'],
+    'EMEA':           ['United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy', 'Switzerland', 'Israel', 'United Arab Emirates', 'South Africa'],
+    'Nordics':        ['Sweden', 'Norway', 'Denmark', 'Finland'],
+    'Eastern Europe': ['Poland', 'Czech Republic', 'Romania', 'Hungary', 'Ukraine'],
+    'Middle East':    ['United Arab Emirates', 'Saudi Arabia', 'Israel', 'Qatar', 'Bahrain', 'Kuwait'],
+    'Africa':         ['South Africa', 'Nigeria', 'Kenya', 'Egypt', 'Ghana'],
+    'APAC':           ['Australia', 'Japan', 'India', 'South Korea', 'Singapore', 'China', 'New Zealand'],
+    'Southeast Asia': ['Singapore', 'Indonesia', 'Philippines', 'Thailand', 'Vietnam', 'Malaysia'],
+    'United States, Northeast': ['United States'],
+    'United States, Southeast': ['United States'],
+    'United States, Midwest':   ['United States'],
+    'United States, West':      ['United States'],
+    'United States, Southwest': ['United States'],
+  };
+
+  const geoList = Array.isArray(geographies) && geographies.length > 0
+    ? geographies
+    : (geography ? [geography.trim()] : []);
+
+  if (geoList.length > 0) {
+    const allLocations = new Set();
+    for (const geo of geoList) {
+      const expanded = regionExpansion[geo.trim()];
+      if (expanded) {
+        expanded.forEach(loc => allLocations.add(loc));
+      } else {
+        allLocations.add(geo.trim());
+      }
+    }
+    if (allLocations.size > 0) {
+      filters.person_locations = [...allLocations];
+    }
   }
 
   // Tech stack → BOTH technology_names AND q_organization_keyword_tags

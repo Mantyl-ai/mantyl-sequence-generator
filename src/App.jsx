@@ -37,11 +37,11 @@ export default function App() {
     let foundProspects = null
     try {
       const prospectData = await findProspects({
-        industry: form.industry,
-        companySegment: form.companySegment,
-        companySize: form.companySize,
+        industries: form.industries,
+        companySegments: form.companySegments,
+        companySizes: form.companySizes,
         jobTitles: form.jobTitles,
-        geography: form.geography,
+        geographies: form.geographies,
         techStack: form.techStack,
         otherCriteria: form.otherCriteria,
         prospectCount: form.prospectCount,
@@ -84,7 +84,7 @@ export default function App() {
         touchpointCount: form.touchpointCount,
         daySpacing: form.daySpacing,
         emailSendType: form.emailSendType,
-        tone: form.tone,
+        tones: form.tones,
         productDescription: form.productDescription,
         painPoint: form.painPoint,
         proposedSolution: form.proposedSolution,

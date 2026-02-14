@@ -173,11 +173,11 @@ const RequiredAsterisk = () => <span className="required-asterisk">*</span>
 
 export default function ICPForm({ onSubmit, isLoading }) {
   const [form, setForm] = useState({
-    industry: '',
-    companySegment: '',
-    companySize: '',
+    industries: [],
+    companySegments: [],
+    companySizes: [],
     jobTitles: '',
-    geography: '',
+    geographies: [],
     techStack: '',
     otherCriteria: '',
     prospectCount: 10,
@@ -185,7 +185,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
     daySpacing: 3,
     channels: ['email'],
     emailSendType: 'manual',
-    tone: 'professional',
+    tones: ['professional'],
     productDescription: '',
     painPoint: '',
     proposedSolution: '',
@@ -198,16 +198,53 @@ export default function ICPForm({ onSubmit, isLoading }) {
     senderCalendly: '',
   })
 
+  // Track which industry/geography groups are expanded
+  const [expandedIndustries, setExpandedIndustries] = useState({})
+  const [expandedGeographies, setExpandedGeographies] = useState({})
+
   const update = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
-  // Segment and size are INDEPENDENT — selecting a segment is optional context, not a filter
-  const toggleSegment = (segment) => {
-    setForm(prev => ({
-      ...prev,
-      companySegment: prev.companySegment === segment ? '' : segment,
-    }))
+  // Generic multi-toggle: add/remove from array, optionally enforce min 1
+  const toggleArrayField = (field, value, minOne = false) => {
+    setForm(prev => {
+      const arr = prev[field]
+      const next = arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value]
+      if (minOne && next.length === 0) return prev
+      return { ...prev, [field]: next }
+    })
+  }
+
+  const toggleSegment = (segment) => toggleArrayField('companySegments', segment)
+  const toggleSize = (size) => toggleArrayField('companySizes', size)
+  const toggleTone = (toneId) => toggleArrayField('tones', toneId, true)
+
+  const toggleIndustry = (industry) => toggleArrayField('industries', industry)
+  const toggleGeography = (geo) => toggleArrayField('geographies', geo)
+
+  // Select/deselect all industries in a category
+  const toggleIndustryGroup = (groupName) => {
+    const items = INDUSTRY_GROUPS[groupName] || []
+    setForm(prev => {
+      const allSelected = items.every(i => prev.industries.includes(i))
+      const next = allSelected
+        ? prev.industries.filter(i => !items.includes(i))
+        : [...new Set([...prev.industries, ...items])]
+      return { ...prev, industries: next }
+    })
+  }
+
+  // Select/deselect all geographies in a region group
+  const toggleGeoGroup = (groupName) => {
+    const items = (GEOGRAPHY_GROUPS[groupName] || []).map(g => g.value)
+    setForm(prev => {
+      const allSelected = items.every(g => prev.geographies.includes(g))
+      const next = allSelected
+        ? prev.geographies.filter(g => !items.includes(g))
+        : [...new Set([...prev.geographies, ...items])]
+      return { ...prev, geographies: next }
+    })
   }
 
   const toggleChannel = (channel) => {
@@ -225,7 +262,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
     onSubmit(form)
   }
 
-  const isFormValid = form.industry && form.companySize && form.geography && form.jobTitles.trim() && form.senderName.trim() && form.senderTitle.trim() && form.senderCompany.trim() && form.productDescription.trim()
+  const isFormValid = form.industries.length > 0 && (form.companySizes.length > 0 || form.companySegments.length > 0) && form.geographies.length > 0 && form.jobTitles.trim() && form.senderName.trim() && form.senderTitle.trim() && form.senderCompany.trim() && form.productDescription.trim()
 
   return (
     <form onSubmit={handleSubmit}>
@@ -271,26 +308,47 @@ export default function ICPForm({ onSubmit, isLoading }) {
           ICP Parameters
         </h3>
         <div className="form-grid">
-          <div className="form-group">
-            <label>Industry <RequiredAsterisk /></label>
-            <select value={form.industry} onChange={e => update('industry', e.target.value)} required>
-              <option value="">Select an Industry</option>
-              {Object.entries(INDUSTRY_GROUPS).map(([group, items]) => (
-                <optgroup key={group} label={group}>
-                  {items.map(i => <option key={i} value={i}>{i}</option>)}
-                </optgroup>
-              ))}
-            </select>
+          <div className="form-group full-width">
+            <label>Industries <RequiredAsterisk /> {form.industries.length > 0 && <span className="multi-count">{form.industries.length} selected</span>}</label>
+            <div className="multi-checkbox-groups">
+              {Object.entries(INDUSTRY_GROUPS).map(([group, items]) => {
+                const isExpanded = expandedIndustries[group]
+                const selectedCount = items.filter(i => form.industries.includes(i)).length
+                const allSelected = items.every(i => form.industries.includes(i))
+                return (
+                  <div key={group} className="checkbox-group">
+                    <div className="checkbox-group-header" onClick={() => setExpandedIndustries(prev => ({ ...prev, [group]: !prev[group] }))}>
+                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
+                      <span className="checkbox-group-name">{group}</span>
+                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
+                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleIndustryGroup(group) }}>
+                        {allSelected ? 'Clear' : 'All'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="checkbox-group-items">
+                        {items.map(i => (
+                          <label key={i} className={`checkbox-item ${form.industries.includes(i) ? 'checked' : ''}`}>
+                            <input type="checkbox" checked={form.industries.includes(i)} onChange={() => toggleIndustry(i)} />
+                            <span>{i}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="form-group">
-            <label>Company Segment <span className="optional-tag">Optional</span></label>
+            <label>Company Segment <span className="optional-tag">Optional — select multiple</span></label>
             <div className="segment-pills">
               {COMPANY_SEGMENTS.map(seg => (
                 <button
                   key={seg.label}
                   type="button"
-                  className={`segment-pill ${form.companySegment === seg.label ? 'active' : ''}`}
+                  className={`segment-pill ${form.companySegments.includes(seg.label) ? 'active' : ''}`}
                   onClick={() => toggleSegment(seg.label)}
                 >
                   {seg.label}
@@ -299,12 +357,20 @@ export default function ICPForm({ onSubmit, isLoading }) {
             </div>
           </div>
 
-          <div className="form-group">
-            <label>Company Size (employees) <RequiredAsterisk /></label>
-            <select value={form.companySize} onChange={e => update('companySize', e.target.value)} required>
-              <option value="">Select Size</option>
-              {EMPLOYEE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label} employees</option>)}
-            </select>
+          <div className="form-group full-width">
+            <label>Company Size (employees) {form.companySizes.length === 0 && form.companySegments.length === 0 && <RequiredAsterisk />} {form.companySizes.length > 0 && <span className="multi-count">{form.companySizes.length} selected</span>}</label>
+            <div className="size-pills">
+              {EMPLOYEE_SIZES.map(s => (
+                <button
+                  key={s.value}
+                  type="button"
+                  className={`segment-pill ${form.companySizes.includes(s.value) ? 'active' : ''}`}
+                  onClick={() => toggleSize(s.value)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="form-group">
@@ -318,16 +384,37 @@ export default function ICPForm({ onSubmit, isLoading }) {
             />
           </div>
 
-          <div className="form-group">
-            <label>Geography / Region <RequiredAsterisk /></label>
-            <select value={form.geography} onChange={e => update('geography', e.target.value)} required>
-              <option value="">Select Region</option>
-              {Object.entries(GEOGRAPHY_GROUPS).map(([group, items]) => (
-                <optgroup key={group} label={group}>
-                  {items.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                </optgroup>
-              ))}
-            </select>
+          <div className="form-group full-width">
+            <label>Geography / Regions <RequiredAsterisk /> {form.geographies.length > 0 && <span className="multi-count">{form.geographies.length} selected</span>}</label>
+            <div className="multi-checkbox-groups">
+              {Object.entries(GEOGRAPHY_GROUPS).map(([group, items]) => {
+                const isExpanded = expandedGeographies[group]
+                const selectedCount = items.filter(g => form.geographies.includes(g.value)).length
+                const allSelected = items.every(g => form.geographies.includes(g.value))
+                return (
+                  <div key={group} className="checkbox-group">
+                    <div className="checkbox-group-header" onClick={() => setExpandedGeographies(prev => ({ ...prev, [group]: !prev[group] }))}>
+                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
+                      <span className="checkbox-group-name">{group}</span>
+                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
+                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleGeoGroup(group) }}>
+                        {allSelected ? 'Clear' : 'All'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="checkbox-group-items">
+                        {items.map(g => (
+                          <label key={g.value} className={`checkbox-item ${form.geographies.includes(g.value) ? 'checked' : ''}`}>
+                            <input type="checkbox" checked={form.geographies.includes(g.value)} onChange={() => toggleGeography(g.value)} />
+                            <span>{g.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="form-group">
@@ -407,16 +494,16 @@ export default function ICPForm({ onSubmit, isLoading }) {
         </h3>
         <div className="form-grid">
           <div className="form-group">
-            <label>Number of Prospects (max 15) <RequiredAsterisk /></label>
+            <label>Number of Prospects (max 20) <RequiredAsterisk /></label>
             <div className="range-wrapper">
-              <input type="range" min="1" max="15" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
+              <input type="range" min="1" max="20" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
               <span className="range-value">{form.prospectCount}</span>
             </div>
           </div>
           <div className="form-group">
-            <label>Touchpoints per Sequence <RequiredAsterisk /></label>
+            <label>Touchpoints per Sequence (max 20) <RequiredAsterisk /></label>
             <div className="range-wrapper">
-              <input type="range" min="3" max="12" value={form.touchpointCount} onChange={e => update('touchpointCount', parseInt(e.target.value))} />
+              <input type="range" min="3" max="20" value={form.touchpointCount} onChange={e => update('touchpointCount', parseInt(e.target.value))} />
               <span className="range-value">{form.touchpointCount}</span>
             </div>
           </div>
@@ -471,14 +558,14 @@ export default function ICPForm({ onSubmit, isLoading }) {
             )}
           </div>
           <div className="form-group full-width">
-            <label>Copy Tone <RequiredAsterisk /></label>
+            <label>Copy Tone <RequiredAsterisk /> <span className="section-subtitle">— select one or more</span></label>
             <div className="tone-selector">
               {TONES.map(t => (
                 <button
                   key={t.id}
                   type="button"
-                  className={`tone-btn ${form.tone === t.id ? 'active' : ''}`}
-                  onClick={() => update('tone', t.id)}
+                  className={`tone-btn ${form.tones.includes(t.id) ? 'active' : ''}`}
+                  onClick={() => toggleTone(t.id)}
                 >
                   <span className="tone-icon"><SvgIcon name={t.icon} size={22} /></span>
                   <div className="tone-text">
@@ -505,6 +592,13 @@ export default function ICPForm({ onSubmit, isLoading }) {
                   <div>
                     <div className="send-type-label">Automated Send</div>
                     <div className="send-type-desc">Sequenced via Outreach, Salesloft, etc.</div>
+                  </div>
+                </button>
+                <button type="button" className={`send-type-btn ${form.emailSendType === 'combo' ? 'active' : ''}`} onClick={() => update('emailSendType', 'combo')}>
+                  <span className="send-type-icon"><SvgIcon name="zap" size={20} /></span>
+                  <div>
+                    <div className="send-type-label">Manual + Automated</div>
+                    <div className="send-type-desc">Mix of personal 1:1 and sequenced sends</div>
                   </div>
                 </button>
               </div>
