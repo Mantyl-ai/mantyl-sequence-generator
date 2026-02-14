@@ -384,7 +384,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
     geographies: [],
     techStack: [],
     otherCriteria: [],
-    prospectCount: 10,
+    prospectCount: 20,
     touchpointCount: 6,
     daySpacing: 3,
     channels: ['email'],
@@ -709,7 +709,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
           <div className="form-group">
             <label>Number of Prospects (max 20) <RequiredAsterisk /></label>
             <div className="range-wrapper">
-              <input type="range" min="1" max="10" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
+              <input type="range" min="1" max="20" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
               <span className="range-value">{form.prospectCount}</span>
             </div>
           </div>
