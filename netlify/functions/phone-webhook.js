@@ -3,13 +3,13 @@
 // GET:  Frontend polls this same function to retrieve stored phone data
 //
 // Storage: Upstash Redis (free tier, REST API, no SDK needed).
-// Netlify Blobs was tried but fails due to esbuild bundling stripping runtime context.
-// Upstash Redis works reliably in any serverless environment via simple HTTP calls.
+// Uses HSET/HGETALL for atomic writes — prevents race conditions when
+// multiple Apollo webhook calls arrive simultaneously.
 //
 // Apollo waterfall payload format:
 // { people: [{ id, waterfall: { phone_numbers: [{ vendors: [{ phone_numbers: [...], status }] }] } }] }
 
-// Redis key TTL: 1 hour (phone polling only runs 5 min, this is generous)
+// Redis key TTL: 1 hour (phone polling only runs ~2 min, this is generous)
 const TTL_SECONDS = 3600;
 
 export async function handler(event) {
@@ -24,12 +24,12 @@ export async function handler(event) {
     if (!sessionId) return respond(400, { error: 'Missing sessionId' });
 
     const storageOk = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-    const data = await readStore(sessionId);
+    const data = await readPhoneHash(sessionId);
     return respond(200, {
-      phones: data.phones || {},
-      totalReceived: data.totalReceived || 0,
+      phones: data.phones,
+      totalReceived: data.totalReceived,
       status: data.totalReceived > 0 ? 'has_data' : 'waiting',
-      storageOk, // Debug: true if Upstash credentials are configured
+      storageOk,
     });
   }
 
@@ -114,28 +114,43 @@ export async function handler(event) {
       results.push({ personId, name: personName, email: personEmail, linkedin: personLinkedin, phone: bestPhone, phoneType, allPhones, verifiedPhones });
     }
 
-    // ── Store results in Upstash Redis ──
-    const existing = await readStore(sessionId);
+    // ── Store results atomically in Redis using HSET ──
+    // Each person gets multiple hash fields (id, email, linkedin, name) pointing to their phone data.
+    // HSET is atomic per call — no read-modify-write race condition when concurrent webhook POSTs arrive.
+    const hashKey = `phone:${sessionId}`;
+    const fieldsToSet = [];
 
     for (const r of results) {
-      const entry = {
+      const entry = JSON.stringify({
         phone: r.phone,
         phoneType: r.phoneType || '',
         allPhones: r.allPhones,
         verifiedPhones: r.verifiedPhones,
         name: r.name,
         receivedAt: new Date().toISOString(),
-      };
+      });
 
-      if (r.personId) existing.phones[`id:${r.personId}`] = entry;
-      if (r.email) existing.phones[`email:${r.email.toLowerCase()}`] = entry;
-      if (r.linkedin) existing.phones[`linkedin:${r.linkedin}`] = entry;
-      if (r.name) existing.phones[`name:${r.name.toLowerCase()}`] = entry;
-      existing.totalReceived = (existing.totalReceived || 0) + 1;
+      // Add all identifier keys for this person — frontend matches by any of these
+      if (r.personId) fieldsToSet.push(`id:${r.personId}`, entry);
+      if (r.email) fieldsToSet.push(`email:${r.email.toLowerCase()}`, entry);
+      if (r.linkedin) fieldsToSet.push(`linkedin:${r.linkedin}`, entry);
+      if (r.name) fieldsToSet.push(`name:${r.name.toLowerCase()}`, entry);
     }
 
-    const writeOk = await writeStore(sessionId, existing);
-    console.log(`[phone-webhook] Stored ${results.length} results for session ${sessionId}. Total received: ${existing.totalReceived}. Write OK: ${writeOk}`);
+    let writeOk = true;
+    if (fieldsToSet.length > 0) {
+      // HSET adds fields atomically — concurrent calls don't overwrite each other
+      const hsetResult = await redisCommand(['HSET', hashKey, ...fieldsToSet]);
+      writeOk = hsetResult !== null;
+
+      // Atomically increment the received counter
+      await redisCommand(['HINCRBY', hashKey, '_totalReceived', results.length]);
+
+      // Set TTL (refreshed on each POST — keeps data alive while webhook calls are arriving)
+      await redisCommand(['EXPIRE', hashKey, TTL_SECONDS]);
+    }
+
+    console.log(`[phone-webhook] Stored ${results.length} results (${fieldsToSet.length / 2} hash fields) for session ${sessionId}. Write OK: ${writeOk}`);
 
     return respond(200, { ok: true, stored: results.length, writeOk, phones: results.map(r => r.phone).filter(Boolean) });
 
@@ -145,10 +160,7 @@ export async function handler(event) {
   }
 }
 
-// ── Upstash Redis REST storage helpers ──
-// Uses simple HTTP calls — no SDK, no bundling issues.
-// Free tier: 10,000 requests/day (plenty for phone polling).
-// Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Netlify env vars.
+// ── Upstash Redis REST helpers ──
 
 async function redisCommand(args) {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -183,33 +195,55 @@ async function redisCommand(args) {
   }
 }
 
-async function readStore(sessionId) {
-  const key = `phone:${sessionId}`;
-  const raw = await redisCommand(['GET', key]);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      console.warn(`[phone-webhook] Failed to parse Redis data for ${sessionId}:`, e.message);
+/**
+ * Read all phone data from Redis hash using HGETALL.
+ * Returns { phones: { key: entryObj, ... }, totalReceived: N }
+ */
+async function readPhoneHash(sessionId) {
+  const hashKey = `phone:${sessionId}`;
+  const raw = await redisCommand(['HGETALL', hashKey]);
+
+  // HGETALL returns an array of alternating [key, value, key, value, ...]
+  // or an object { key: value } depending on the Upstash client
+  const phones = {};
+  let totalReceived = 0;
+
+  if (Array.isArray(raw)) {
+    for (let i = 0; i < raw.length; i += 2) {
+      const field = raw[i];
+      const value = raw[i + 1];
+      if (field === '_totalReceived') {
+        totalReceived = parseInt(value) || 0;
+      } else {
+        try {
+          phones[field] = JSON.parse(value);
+        } catch {
+          phones[field] = value;
+        }
+      }
+    }
+  } else if (raw && typeof raw === 'object') {
+    // Upstash REST sometimes returns an object directly
+    for (const [field, value] of Object.entries(raw)) {
+      if (field === '_totalReceived') {
+        totalReceived = parseInt(value) || 0;
+      } else {
+        try {
+          phones[field] = JSON.parse(value);
+        } catch {
+          phones[field] = value;
+        }
+      }
     }
   }
-  return { phones: {}, totalReceived: 0 };
-}
 
-async function writeStore(sessionId, data) {
-  const key = `phone:${sessionId}`;
-  const value = JSON.stringify(data);
-  // SET with EX (expiry in seconds) — auto-cleanup after 1 hour
-  const result = await redisCommand(['SET', key, value, 'EX', TTL_SECONDS]);
-  return result === 'OK';
+  return { phones, totalReceived };
 }
 
 function extractSessionId(event) {
-  // Try path-based: /phone-webhook/{sessionId}
   const pathParts = (event.path || '').split('/').filter(Boolean);
   const lastPart = pathParts[pathParts.length - 1];
   if (lastPart && lastPart !== 'phone-webhook') return lastPart;
-  // Fallback to query param
   return event.queryStringParameters?.sessionId || '';
 }
 
