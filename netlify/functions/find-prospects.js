@@ -827,10 +827,13 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
 
   let found = 0;
   let attempted = 0;
-  // Skip Hunter verification when many prospects to avoid Netlify timeout (10s free tier).
-  // Each verify call takes ~400ms; 20 prospects × 5 patterns = up to 100 calls.
-  // Instead, just use the best guess (first.last is correct ~55% of the time).
-  let verifierAvailable = !!hunterApiKey && needsEmail.length <= 5;
+  let verifierAvailable = !!hunterApiKey;
+  // Budget: max 10 Hunter verify API calls total to stay within Netlify timeout.
+  // For <=5 prospects: try multiple patterns per person (up to 5 each).
+  // For >5 prospects: try only the top 1 pattern per person (quick verify).
+  const MAX_VERIFY_CALLS = 10;
+  let verifyCallsUsed = 0;
+  const patternsPerProspect = needsEmail.length <= 5 ? 5 : 1;
 
   for (const prospect of needsEmail) {
     attempted++;
@@ -858,14 +861,23 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
       }
     }
 
-    // Try to verify each candidate with Hunter
+    // Try to verify each candidate with Hunter (limited by budget)
     let bestEmail = candidates[0].email; // Default to first candidate
     let bestPattern = candidates[0].pattern;
     let verified = false;
 
-    if (verifierAvailable) {
-      for (const candidate of candidates) {
+    // Only try up to patternsPerProspect candidates, and respect global verify budget
+    const candidatesToTry = candidates.slice(0, patternsPerProspect);
+
+    if (verifierAvailable && verifyCallsUsed < MAX_VERIFY_CALLS) {
+      for (const candidate of candidatesToTry) {
+        if (verifyCallsUsed >= MAX_VERIFY_CALLS) {
+          console.log(`[Pattern] Verify budget exhausted (${MAX_VERIFY_CALLS} calls) — using best guess for remaining`);
+          break;
+        }
+
         try {
+          verifyCallsUsed++;
           const params = new URLSearchParams({
             email: candidate.email,
             api_key: hunterApiKey,
@@ -900,7 +912,7 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
             console.log(`[Pattern] ${candidate.email} is ${status} — trying next pattern`);
           }
 
-          await new Promise(r => setTimeout(r, 200));
+          await new Promise(r => setTimeout(r, 150));
         } catch (err) {
           console.warn(`[Pattern] Verify error for ${candidate.email}:`, err.message);
         }
