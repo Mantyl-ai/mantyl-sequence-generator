@@ -12,6 +12,9 @@
 import { getStore } from '@netlify/blobs';
 
 const STORE_NAME = 'phone-data';
+// Strong consistency ensures webhook POST writes are immediately visible
+// to frontend GET polls — critical since they run on different Lambda instances.
+const STORE_OPTIONS = { name: STORE_NAME, consistency: 'strong' };
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -150,21 +153,26 @@ export async function handler(event) {
 // ── Netlify Blobs storage helpers ──
 async function readStore(sessionId) {
   try {
-    const store = getStore(STORE_NAME);
+    const store = getStore(STORE_OPTIONS);
     const data = await store.get(sessionId, { type: 'json' });
-    if (data) return data;
+    if (data) {
+      console.log(`[phone-webhook] Blob read OK for session ${sessionId}: ${Object.keys(data.phones || {}).length} phone entries`);
+      return data;
+    }
+    console.log(`[phone-webhook] Blob read: no data yet for session ${sessionId}`);
   } catch (e) {
-    console.warn('[phone-webhook] Blob read error:', e.message);
+    console.warn(`[phone-webhook] Blob read error for session ${sessionId}:`, e.message, e.stack?.split('\n')[1] || '');
   }
   return { phones: {}, totalReceived: 0 };
 }
 
 async function writeStore(sessionId, data) {
   try {
-    const store = getStore(STORE_NAME);
+    const store = getStore(STORE_OPTIONS);
     await store.setJSON(sessionId, data);
+    console.log(`[phone-webhook] Blob write OK for session ${sessionId}: ${Object.keys(data.phones || {}).length} phone entries`);
   } catch (e) {
-    console.error('[phone-webhook] Blob write error:', e.message);
+    console.error(`[phone-webhook] Blob write error for session ${sessionId}:`, e.message, e.stack?.split('\n')[1] || '');
   }
 }
 

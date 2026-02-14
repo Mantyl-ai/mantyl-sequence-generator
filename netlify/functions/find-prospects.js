@@ -249,6 +249,7 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
     let fullName = '';
     let lastName = '';
     let idPersonData = null;
+    let stepAPhone = { number: '', type: '' }; // Phone from Step A (fallback if Step B has none)
     let enrichDebug = { steps: [] };
 
     // ── Step A: GET /people/{id} to get linkedin_url and full name ──────
@@ -270,6 +271,9 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
           fullName = idPersonData.name || '';
           lastName = idPersonData.last_name || '';
 
+          // Extract phone from Step A — used as fallback if Step B has none
+          stepAPhone = extractPhone(idPersonData);
+
           enrichDebug.steps.push({
             step: 'A_id_lookup',
             status: 'ok',
@@ -277,9 +281,18 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
             gotLastName: !!lastName,
             rawEmail: idPersonData.email || '(null)',
             linkedin: linkedinUrl || '(null)',
+            phone: stepAPhone.number || '(null)',
+            phoneType: stepAPhone.type || '(null)',
+            phoneFields: {
+              phone_numbers: idPersonData.phone_numbers?.length || 0,
+              phone_number: idPersonData.phone_number || '(null)',
+              sanitized_phone: idPersonData.sanitized_phone || '(null)',
+              direct_phone: idPersonData.direct_phone || '(null)',
+              corporate_phone: idPersonData.corporate_phone || '(null)',
+            },
           });
 
-          console.log(`Step A for ${firstName}: linkedin="${linkedinUrl}", lastName="${lastName}", rawEmail="${idPersonData.email || ''}"`);
+          console.log(`Step A for ${firstName}: linkedin="${linkedinUrl}", lastName="${lastName}", rawEmail="${idPersonData.email || ''}", phone="${stepAPhone.number}" (${stepAPhone.type})`);
         } else {
           enrichDebug.steps.push({ step: 'A_id_lookup', status: idResponse.status });
           console.warn(`Step A failed for ${firstName}: ${idResponse.status}`);
@@ -344,11 +357,13 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
 
         if (ep) {
           const email = isRealEmail(ep.email) ? ep.email : '';
-          const phoneData = extractPhone(ep);
+          const stepBPhone = extractPhone(ep);
+          // Use Step B phone if available, otherwise fall back to Step A phone
+          const phoneData = stepBPhone.number ? stepBPhone : stepAPhone;
           const linkedin = ep.linkedin_url || linkedinUrl || '';
           const emailStatus = ep.email_status || '';
 
-          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", phone="${phoneData.number}" (${phoneData.type}), waterfall=${JSON.stringify(waterfallStatus)}`);
+          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", stepBPhone="${stepBPhone.number}" (${stepBPhone.type}), stepAPhone="${stepAPhone.number}" (${stepAPhone.type}), finalPhone="${phoneData.number}" (${phoneData.type}), waterfall=${JSON.stringify(waterfallStatus)}`);
 
           return {
             apolloId: ep.id || personId,
@@ -388,7 +403,8 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
         title: idPersonData.title || person.title || '',
         company: (idPersonData.organization || {}).name || orgName || '',
         email: '',
-        phone: '',
+        phone: stepAPhone.number, // Use phone from Step A if available
+        phoneType: stepAPhone.type,
         linkedinUrl: linkedin,
         location: formatLocation(idPersonData) || '',
         companyDomain: (idPersonData.organization || {}).primary_domain || domain || '',
@@ -433,24 +449,49 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
 }
 
 // ── Extract phone from Apollo person object ──────────────────────────
-// Apollo returns phones in different formats:
+// Apollo returns phones in many different formats depending on endpoint:
 //   - phone_numbers: [{ sanitized_number: "+1...", type: "work_direct"|"mobile" }]
-//   - phone_number: "+1..." (sometimes)
-//   - sanitized_phone: "+1..." (sometimes)
+//   - phone_number: "+1..." (flat field)
+//   - sanitized_phone: "+1..." (flat field)
+//   - direct_phone: "+1..." (from enrichment)
+//   - corporate_phone: "+1..." (company switchboard)
+//   - mobile_phone: "+1..." (mobile)
+//   - phone: "+1..." (generic)
 // Returns { number, type } where type is "work_direct", "mobile", or ""
 function extractPhone(person) {
   if (!person) return { number: '', type: '' };
+
   // Try phone_numbers array first (most common Apollo format)
   if (Array.isArray(person.phone_numbers) && person.phone_numbers.length > 0) {
-    const p = person.phone_numbers[0];
-    return {
-      number: p.sanitized_number || p.number || p.raw_number || '',
-      type: p.type || '', // "work_direct" or "mobile"
-    };
+    // Prefer work_direct, then mobile, then any
+    const workDirect = person.phone_numbers.find(p => p.type === 'work_direct');
+    const mobile = person.phone_numbers.find(p => p.type === 'mobile');
+    const best = workDirect || mobile || person.phone_numbers[0];
+    const num = best.sanitized_number || best.number || best.raw_number || '';
+    if (num) {
+      return { number: num, type: best.type || '' };
+    }
   }
-  // Fallback to flat fields
-  const num = person.phone_number || person.sanitized_phone || '';
-  return { number: num, type: '' };
+
+  // Try all known flat phone fields (Apollo returns different ones per endpoint)
+  const flatFields = [
+    { key: 'direct_phone', type: 'work_direct' },
+    { key: 'phone_number', type: '' },
+    { key: 'sanitized_phone', type: '' },
+    { key: 'corporate_phone', type: 'corporate' },
+    { key: 'mobile_phone', type: 'mobile' },
+    { key: 'phone', type: '' },
+    { key: 'work_phone', type: 'work_direct' },
+  ];
+
+  for (const { key, type } of flatFields) {
+    const val = person[key];
+    if (val && typeof val === 'string' && val.trim()) {
+      return { number: val.trim(), type };
+    }
+  }
+
+  return { number: '', type: '' };
 }
 
 // ── Build prospect from search-only data ─────────────────────────────

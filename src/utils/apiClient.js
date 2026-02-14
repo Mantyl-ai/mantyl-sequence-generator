@@ -215,11 +215,15 @@ export async function generateSequence(params, onProgress) {
  * @param {Object} options - { interval: 5000, maxDuration: 120000 }
  * @returns {Function} cleanup function to stop polling
  */
-export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
+export function pollForPhones(sessionId, initialProspects, onUpdate, options = {}) {
   const { interval = 5000, maxDuration = 120000 } = options;
   let stopped = false;
   let lastCount = 0;
   const startTime = Date.now();
+
+  // Mutable ref: tracks the latest prospects array so each poll cycle
+  // sees phones found in previous cycles (fixes stale closure bug).
+  let currentProspects = initialProspects;
 
   const poll = async () => {
     if (stopped) return;
@@ -231,22 +235,26 @@ export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
     try {
       // Poll the phone-webhook function directly (handles both POST from Apollo and GET from us)
       const res = await fetch(`${API_BASE}/phone-webhook/${sessionId}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.warn(`[Phone Poll] HTTP ${res.status} from phone-webhook`);
+        if (!stopped) setTimeout(poll, interval);
+        return;
+      }
 
       const data = await res.json();
       const phones = data.phones || {};
       const phoneCount = Object.keys(phones).length;
 
-      if (phoneCount > lastCount) {
-        lastCount = phoneCount;
-        console.log(`[Phone Poll] ${phoneCount} phone entries received`);
+      console.log(`[Phone Poll] Status: ${data.status}, entries: ${phoneCount}, totalReceived: ${data.totalReceived}`);
 
-        // Match phones to prospects by name, email, or linkedin
-        const updated = prospects.map(p => {
+      if (phoneCount > 0 && phoneCount >= lastCount) {
+        lastCount = phoneCount;
+
+        // Match phones to prospects by apolloId, email, linkedin, or name
+        const updated = currentProspects.map(p => {
           if (p.phone) return p; // Already has phone
 
           // Try matching by various keys — Apollo ID is most reliable
-          // (webhook payload only has person ID, not name/email/linkedin)
           const idKey = p.apolloId ? `id:${p.apolloId}` : '';
           const emailKey = `email:${(p.email || '').toLowerCase()}`;
           const linkedinKey = `linkedin:${p.linkedinUrl || ''}`;
@@ -257,16 +265,18 @@ export function pollForPhones(sessionId, prospects, onUpdate, options = {}) {
           const phoneType = match?.phoneType || '';
 
           if (phone) {
+            console.log(`[Phone Poll] Matched phone for ${p.name}: ${phone} (${phoneType})`);
             return { ...p, phone, phoneType: phoneType || p.phoneType || '', enrichmentStatus: p.email ? 'enriched' : p.enrichmentStatus };
           }
           return p;
         });
 
         const phonesFound = updated.filter(p => p.phone).length;
-        const prevPhones = prospects.filter(p => p.phone).length;
+        const prevPhones = currentProspects.filter(p => p.phone).length;
 
         if (phonesFound > prevPhones) {
-          console.log(`[Phone Poll] Updated ${phonesFound - prevPhones} prospects with phone numbers`);
+          console.log(`[Phone Poll] Updated ${phonesFound - prevPhones} new phones (total: ${phonesFound})`);
+          currentProspects = updated; // Update our mutable ref for next cycle
           onUpdate(updated);
         }
       }
