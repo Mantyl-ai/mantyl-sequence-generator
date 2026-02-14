@@ -49,6 +49,10 @@ export async function handler(event) {
     const count = Math.min(parseInt(prospectCount) || 10, 20);
 
     // ── Step 1: Search for people via Apollo ─────────────────────────
+    // Over-fetch 3x the requested count so we can prioritize prospects
+    // that have has_direct_phone=true (Apollo has their phone number).
+    // Then we enrich only the top N prospects.
+    const overFetchCount = Math.min(count * 3, 100); // Apollo max per_page = 100
     const apolloFilters = buildApolloFilters({ industries, industry, companySegments, companySegment, companySizes, companySize, jobTitles, geographies, geography, techStack, otherCriteria });
 
     const apolloResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
@@ -58,11 +62,8 @@ export async function handler(event) {
         'x-api-key': APOLLO_API_KEY,
       },
       body: JSON.stringify({
-        per_page: count,
+        per_page: overFetchCount,
         page: 1,
-        // Only return prospects Apollo has a direct phone number for.
-        // This ensures phone data is available during enrichment (Step B).
-        q_person_has_direct_phone: true,
         ...apolloFilters,
       }),
     });
@@ -85,11 +86,21 @@ export async function handler(event) {
       throw new Error('Apollo API returned an unexpected response format');
     }
 
-    const rawPeople = apolloData.people || apolloData.contacts || [];
+    let rawPeople = apolloData.people || apolloData.contacts || [];
     if (!Array.isArray(rawPeople)) {
       console.error('Apollo people/contacts is not an array:', typeof rawPeople);
       throw new Error('Apollo API returned an unexpected data structure');
     }
+
+    // ── Prioritize prospects with phone data ──────────────────────────
+    // Apollo search results include has_direct_phone boolean.
+    // Sort so has_direct_phone=true people come first, then take top N.
+    const withPhone = rawPeople.filter(p => p.has_direct_phone === true);
+    const withoutPhone = rawPeople.filter(p => p.has_direct_phone !== true);
+    const sorted = [...withPhone, ...withoutPhone];
+    rawPeople = sorted.slice(0, count);
+
+    console.log(`[Phone Priority] ${withPhone.length}/${apolloData.people?.length || 0} search results have has_direct_phone=true. Selected ${Math.min(withPhone.length, count)} with phone + ${Math.max(0, count - withPhone.length)} without.`);
 
     // Log first person — dump ALL keys so we can see exactly what Apollo returns
     let debugInfo = {};
