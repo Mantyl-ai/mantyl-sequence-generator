@@ -257,6 +257,16 @@ export function pollForPhones(sessionId, initialProspects, onUpdate, options = {
       const phoneCount = Object.keys(phones).length;
 
       console.log(`[Phone Poll] Status: ${data.status}, entries: ${phoneCount}, totalReceived: ${data.totalReceived}, stalePolls: ${stalePolls}/${MAX_STALE_POLLS}`);
+      if (phoneCount > 0 && stalePolls === 0) {
+        console.log(`[Phone Poll] Hash keys from webhook:`, Object.keys(phones));
+        console.log(`[Phone Poll] Prospect lookup keys:`, currentProspects.filter(p => !p.phone).map(p => ({
+          name: p.name,
+          idKey: p.apolloId ? `id:${p.apolloId}` : '(none)',
+          emailKey: `email:${(p.email || '').toLowerCase()}`,
+          linkedinKey: `linkedin:${p.linkedinUrl || ''}`,
+          nameKey: `name:${(p.name || '').toLowerCase()}`,
+        })));
+      }
 
       let foundNewPhones = false;
 
@@ -273,6 +283,13 @@ export function pollForPhones(sessionId, initialProspects, onUpdate, options = {
           const match = (idKey && phones[idKey]) || phones[emailKey] || phones[linkedinKey] || phones[nameKey] || null;
           const phone = match?.phone || (typeof match === 'string' ? match : '');
           const phoneType = match?.phoneType || '';
+
+          if (match && !phone) {
+            console.log(`[Phone Poll] Found match for ${p.name} but phone is empty:`, JSON.stringify(match).slice(0, 200));
+          }
+          if (!match) {
+            console.log(`[Phone Poll] No match for ${p.name} — tried keys: ${idKey || '(no id)'}, ${emailKey}, ${nameKey}`);
+          }
 
           if (phone) {
             console.log(`[Phone Poll] Matched phone for ${p.name}: ${phone} (${phoneType})`);
