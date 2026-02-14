@@ -614,10 +614,11 @@ function buildApolloFilters({ industries, industry, companySegments, companySegm
   //   (e.g. "Salesforce", "HubSpot", "AWS"). Best for well-known SaaS/tools.
   // q_organization_keyword_tags: Broader keyword match — catches tools not in Apollo's tech DB.
   // Using both ensures maximum coverage: exact tech matches + keyword fallback.
+  // Supports: multi-select array (new), comma-separated string (legacy)
   if (techStack) {
-    const tools = typeof techStack === 'string'
-      ? techStack.split(',').map(t => t.trim()).filter(Boolean)
-      : techStack;
+    const tools = Array.isArray(techStack)
+      ? techStack.filter(Boolean)
+      : (typeof techStack === 'string' ? techStack.split(',').map(t => t.trim()).filter(Boolean) : []);
     if (tools.length > 0) {
       filters.technology_names = tools;
       // Also add to org keyword tags as fallback for tools not in Apollo's tech database
@@ -628,14 +629,67 @@ function buildApolloFilters({ industries, industry, companySegments, companySegm
     }
   }
 
-  // Other qualifying criteria → q_keywords (free-text search across person/company profiles)
-  // Examples: "Series B+ funding", "recently hired SDRs", "growing 50%+ YoY"
-  // q_keywords is Apollo's general keyword search — it matches across names, titles,
-  // company descriptions, and other indexed fields.
+  // Other qualifying criteria → structured Apollo API parameters
+  // Supports: multi-select array of coded values (new), free-text string (legacy)
+  // Coded values map to specific Apollo API filter parameters:
+  //   - c_suite, founder, owner, vp, head, director, manager, senior, entry → person_seniorities
+  //   - dept_* → person_departments (strip "dept_" prefix)
+  //   - rev_* → organization_revenue_range (mapped to Apollo's comma-separated ranges)
+  //   - fund_* → q_organization_keyword_tags (funding stage keywords)
   if (otherCriteria) {
-    const criteria = typeof otherCriteria === 'string' ? otherCriteria.trim() : '';
-    if (criteria) {
-      filters.q_keywords = criteria;
+    if (Array.isArray(otherCriteria) && otherCriteria.length > 0) {
+      const seniorities = [];
+      const departments = [];
+      const revenueRanges = [];
+      const fundingKeywords = [];
+
+      const seniorityValues = new Set(['c_suite', 'founder', 'owner', 'vp', 'head', 'director', 'manager', 'senior', 'entry']);
+
+      const revenueMap = {
+        'rev_0_1M':       '0,1000000',
+        'rev_1M_10M':     '1000000,10000000',
+        'rev_10M_50M':    '10000000,50000000',
+        'rev_50M_100M':   '50000000,100000000',
+        'rev_100M_500M':  '100000000,500000000',
+        'rev_500M_1B':    '500000000,1000000000',
+        'rev_1B_plus':    '1000000000,',
+      };
+
+      const fundingMap = {
+        'fund_seed':           'seed funding',
+        'fund_series_a':       'series a',
+        'fund_series_b':       'series b',
+        'fund_series_c':       'series c',
+        'fund_series_d':       'series d',
+        'fund_ipo':            'ipo public',
+        'fund_private_equity': 'private equity',
+        'fund_bootstrapped':   'bootstrapped',
+      };
+
+      for (const val of otherCriteria) {
+        if (seniorityValues.has(val)) {
+          seniorities.push(val);
+        } else if (val.startsWith('dept_')) {
+          departments.push(val.replace('dept_', ''));
+        } else if (val.startsWith('rev_') && revenueMap[val]) {
+          revenueRanges.push(revenueMap[val]);
+        } else if (val.startsWith('fund_') && fundingMap[val]) {
+          fundingKeywords.push(fundingMap[val]);
+        }
+      }
+
+      if (seniorities.length > 0) filters.person_seniorities = seniorities;
+      if (departments.length > 0) filters.person_departments = departments;
+      if (revenueRanges.length > 0) filters.organization_revenue_range = revenueRanges;
+      if (fundingKeywords.length > 0) {
+        filters.q_organization_keyword_tags = [
+          ...(filters.q_organization_keyword_tags || []),
+          ...fundingKeywords,
+        ];
+      }
+    } else if (typeof otherCriteria === 'string' && otherCriteria.trim()) {
+      // Legacy: free-text string → q_keywords
+      filters.q_keywords = otherCriteria.trim();
     }
   }
 

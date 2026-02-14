@@ -143,6 +143,93 @@ const GEOGRAPHY_GROUPS = {
   ],
 }
 
+const TECH_STACK_GROUPS = {
+  'CRM & Sales': [
+    'Salesforce', 'HubSpot', 'Pipedrive', 'Zoho CRM', 'Microsoft Dynamics',
+    'Close', 'Freshsales', 'Copper', 'Monday Sales CRM', 'Insightly',
+  ],
+  'Sales Engagement': [
+    'Outreach', 'Salesloft', 'Apollo.io', 'Gong', 'Chorus',
+    'Clari', 'ZoomInfo', 'Lusha', 'Cognism', 'Seamless.AI',
+  ],
+  'Marketing Automation': [
+    'Marketo', 'Pardot', 'Mailchimp', 'ActiveCampaign', 'Klaviyo',
+    'Brevo (Sendinblue)', 'Constant Contact', 'Drip', 'Iterable', 'Customer.io',
+  ],
+  'Analytics & BI': [
+    'Google Analytics', 'Tableau', 'Power BI', 'Looker', 'Amplitude',
+    'Mixpanel', 'Heap', 'Pendo', 'FullStory', 'Hotjar',
+  ],
+  'Cloud & Infrastructure': [
+    'AWS', 'Google Cloud', 'Microsoft Azure', 'Heroku', 'DigitalOcean',
+    'Cloudflare', 'Vercel', 'Netlify', 'Docker', 'Kubernetes',
+  ],
+  'Collaboration & Productivity': [
+    'Slack', 'Microsoft Teams', 'Zoom', 'Notion', 'Asana',
+    'Monday.com', 'Jira', 'Confluence', 'Trello', 'ClickUp',
+  ],
+  'Customer Support': [
+    'Zendesk', 'Intercom', 'Freshdesk', 'ServiceNow', 'HubSpot Service Hub',
+    'Drift', 'LiveChat', 'Help Scout', 'Front', 'Gladly',
+  ],
+  'Finance & HR': [
+    'QuickBooks', 'Xero', 'NetSuite', 'Workday', 'BambooHR',
+    'Gusto', 'Rippling', 'ADP', 'Bill.com', 'Brex',
+  ],
+  'Dev Tools & Engineering': [
+    'GitHub', 'GitLab', 'Bitbucket', 'Jenkins', 'CircleCI',
+    'Datadog', 'New Relic', 'Sentry', 'PagerDuty', 'Terraform',
+  ],
+}
+
+const QUALIFYING_CRITERIA_GROUPS = {
+  'Seniority Level': [
+    { label: 'C-Suite (CEO, CTO, CFO)', value: 'c_suite' },
+    { label: 'Founder', value: 'founder' },
+    { label: 'Owner', value: 'owner' },
+    { label: 'VP', value: 'vp' },
+    { label: 'Head of Department', value: 'head' },
+    { label: 'Director', value: 'director' },
+    { label: 'Manager', value: 'manager' },
+    { label: 'Senior', value: 'senior' },
+    { label: 'Entry Level', value: 'entry' },
+  ],
+  'Department': [
+    { label: 'Sales', value: 'dept_sales' },
+    { label: 'Marketing', value: 'dept_marketing' },
+    { label: 'Engineering', value: 'dept_engineering' },
+    { label: 'Product Management', value: 'dept_product_management' },
+    { label: 'Finance', value: 'dept_finance' },
+    { label: 'Human Resources', value: 'dept_human_resources' },
+    { label: 'Operations', value: 'dept_operations' },
+    { label: 'IT', value: 'dept_it' },
+    { label: 'Customer Support', value: 'dept_support' },
+    { label: 'Legal', value: 'dept_legal' },
+    { label: 'Business Development', value: 'dept_business_development' },
+    { label: 'Data Science', value: 'dept_data_science' },
+    { label: 'Consulting', value: 'dept_consulting' },
+  ],
+  'Company Revenue': [
+    { label: 'Under $1M', value: 'rev_0_1M' },
+    { label: '$1M – $10M', value: 'rev_1M_10M' },
+    { label: '$10M – $50M', value: 'rev_10M_50M' },
+    { label: '$50M – $100M', value: 'rev_50M_100M' },
+    { label: '$100M – $500M', value: 'rev_100M_500M' },
+    { label: '$500M – $1B', value: 'rev_500M_1B' },
+    { label: '$1B+', value: 'rev_1B_plus' },
+  ],
+  'Funding Stage': [
+    { label: 'Seed', value: 'fund_seed' },
+    { label: 'Series A', value: 'fund_series_a' },
+    { label: 'Series B', value: 'fund_series_b' },
+    { label: 'Series C', value: 'fund_series_c' },
+    { label: 'Series D+', value: 'fund_series_d' },
+    { label: 'IPO / Public', value: 'fund_ipo' },
+    { label: 'Private Equity', value: 'fund_private_equity' },
+    { label: 'Bootstrapped', value: 'fund_bootstrapped' },
+  ],
+}
+
 const TONES = [
   { id: 'professional', label: 'Professional', desc: 'Polished, formal, executive ready', icon: 'professional' },
   { id: 'casual', label: 'Casual', desc: 'Friendly, conversational, approachable', icon: 'casual' },
@@ -178,8 +265,8 @@ export default function ICPForm({ onSubmit, isLoading }) {
     companySizes: [],
     jobTitles: '',
     geographies: [],
-    techStack: '',
-    otherCriteria: '',
+    techStack: [],
+    otherCriteria: [],
     prospectCount: 10,
     touchpointCount: 6,
     daySpacing: 3,
@@ -201,6 +288,8 @@ export default function ICPForm({ onSubmit, isLoading }) {
   // Track which industry/geography groups are expanded
   const [expandedIndustries, setExpandedIndustries] = useState({})
   const [expandedGeographies, setExpandedGeographies] = useState({})
+  const [expandedTech, setExpandedTech] = useState({})
+  const [expandedCriteria, setExpandedCriteria] = useState({})
 
   const update = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -222,6 +311,8 @@ export default function ICPForm({ onSubmit, isLoading }) {
 
   const toggleIndustry = (industry) => toggleArrayField('industries', industry)
   const toggleGeography = (geo) => toggleArrayField('geographies', geo)
+  const toggleTech = (tool) => toggleArrayField('techStack', tool)
+  const toggleCriteria = (val) => toggleArrayField('otherCriteria', val)
 
   // Select/deselect all industries in a category
   const toggleIndustryGroup = (groupName) => {
@@ -232,6 +323,30 @@ export default function ICPForm({ onSubmit, isLoading }) {
         ? prev.industries.filter(i => !items.includes(i))
         : [...new Set([...prev.industries, ...items])]
       return { ...prev, industries: next }
+    })
+  }
+
+  // Select/deselect all tech tools in a category
+  const toggleTechGroup = (groupName) => {
+    const items = TECH_STACK_GROUPS[groupName] || []
+    setForm(prev => {
+      const allSelected = items.every(i => prev.techStack.includes(i))
+      const next = allSelected
+        ? prev.techStack.filter(i => !items.includes(i))
+        : [...new Set([...prev.techStack, ...items])]
+      return { ...prev, techStack: next }
+    })
+  }
+
+  // Select/deselect all criteria in a group
+  const toggleCriteriaGroup = (groupName) => {
+    const items = (QUALIFYING_CRITERIA_GROUPS[groupName] || []).map(c => c.value)
+    setForm(prev => {
+      const allSelected = items.every(c => prev.otherCriteria.includes(c))
+      const next = allSelected
+        ? prev.otherCriteria.filter(c => !items.includes(c))
+        : [...new Set([...prev.otherCriteria, ...items])]
+      return { ...prev, otherCriteria: next }
     })
   }
 
@@ -417,24 +532,70 @@ export default function ICPForm({ onSubmit, isLoading }) {
             </div>
           </div>
 
-          <div className="form-group">
-            <label>Tech Stack <span className="optional-tag">Optional</span> <span className="section-subtitle">— tools they currently use</span></label>
-            <input
-              type="text"
-              value={form.techStack}
-              onChange={e => update('techStack', e.target.value)}
-              placeholder="e.g. Salesforce, HubSpot, Outreach, Gong"
-            />
+          <div className="form-group full-width">
+            <label>Tech Stack <span className="optional-tag">Optional</span> {form.techStack.length > 0 && <span className="multi-count">{form.techStack.length} selected</span>} <span className="section-subtitle">— tools they currently use</span></label>
+            <div className="multi-checkbox-groups">
+              {Object.entries(TECH_STACK_GROUPS).map(([group, items]) => {
+                const isExpanded = expandedTech[group]
+                const selectedCount = items.filter(i => form.techStack.includes(i)).length
+                const allSelected = items.every(i => form.techStack.includes(i))
+                return (
+                  <div key={group} className="checkbox-group">
+                    <div className="checkbox-group-header" onClick={() => setExpandedTech(prev => ({ ...prev, [group]: !prev[group] }))}>
+                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
+                      <span className="checkbox-group-name">{group}</span>
+                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
+                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleTechGroup(group) }}>
+                        {allSelected ? 'Clear' : 'All'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="checkbox-group-items">
+                        {items.map(i => (
+                          <label key={i} className={`checkbox-item ${form.techStack.includes(i) ? 'checked' : ''}`}>
+                            <input type="checkbox" checked={form.techStack.includes(i)} onChange={() => toggleTech(i)} />
+                            <span>{i}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="form-group full-width">
-            <label>Other Qualifying Criteria <span className="optional-tag">Optional</span></label>
-            <input
-              type="text"
-              value={form.otherCriteria}
-              onChange={e => update('otherCriteria', e.target.value)}
-              placeholder="e.g. Series B+ funding, recently hired SDRs, growing 50%+ YoY"
-            />
+            <label>Qualifying Criteria <span className="optional-tag">Optional</span> {form.otherCriteria.length > 0 && <span className="multi-count">{form.otherCriteria.length} selected</span>} <span className="section-subtitle">— seniority, department, revenue, funding</span></label>
+            <div className="multi-checkbox-groups">
+              {Object.entries(QUALIFYING_CRITERIA_GROUPS).map(([group, items]) => {
+                const isExpanded = expandedCriteria[group]
+                const selectedCount = items.filter(c => form.otherCriteria.includes(c.value)).length
+                const allSelected = items.every(c => form.otherCriteria.includes(c.value))
+                return (
+                  <div key={group} className="checkbox-group">
+                    <div className="checkbox-group-header" onClick={() => setExpandedCriteria(prev => ({ ...prev, [group]: !prev[group] }))}>
+                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
+                      <span className="checkbox-group-name">{group}</span>
+                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
+                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleCriteriaGroup(group) }}>
+                        {allSelected ? 'Clear' : 'All'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="checkbox-group-items">
+                        {items.map(c => (
+                          <label key={c.value} className={`checkbox-item ${form.otherCriteria.includes(c.value) ? 'checked' : ''}`}>
+                            <input type="checkbox" checked={form.otherCriteria.includes(c.value)} onChange={() => toggleCriteria(c.value)} />
+                            <span>{c.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       </div>
