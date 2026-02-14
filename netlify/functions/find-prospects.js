@@ -173,10 +173,13 @@ export async function handler(event) {
 }
 
 // ── Apollo Enrichment — get email, phone, LinkedIn for each person ───
-// Batches requests (5 at a time) to avoid Apollo rate limits when enriching 20 people
+// Batches requests to avoid Apollo rate limits.
+// IMPORTANT: Netlify free-tier functions timeout at 10 seconds.
+// 20 people × 2 API calls each = 40 calls. Must be fast.
+// Batch size 10 = only 2 batches for 20 people (vs 4 batches at size 5).
 async function enrichProspects(rawPeople, apiKey, phoneWebhookUrl) {
-  const BATCH_SIZE = 5;
-  const BATCH_DELAY = 1000; // 1s between batches to avoid rate limits
+  const BATCH_SIZE = 10;
+  const BATCH_DELAY = 200; // 200ms between batches (was 1000ms — too slow for 20 people)
   const results = [];
 
   for (let i = 0; i < rawPeople.length; i += BATCH_SIZE) {
@@ -712,13 +715,18 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
     return { attempted: 0, found: 0 };
   }
 
-  console.log(`[Hunter] ${needsEmail.length}/${prospects.length} prospects missing email — querying Hunter.io`);
+  // Cap at 5 Hunter lookups to stay within Netlify function timeout (10s free tier).
+  // Hunter calls are sequential with 300ms delays — 5 calls ≈ 4 seconds.
+  const MAX_HUNTER_LOOKUPS = 5;
+  const toProcess = needsEmail.slice(0, MAX_HUNTER_LOOKUPS);
+
+  console.log(`[Hunter] ${needsEmail.length}/${prospects.length} prospects missing email — querying Hunter.io (capped at ${toProcess.length})`);
 
   let found = 0;
   let attempted = 0;
 
   // Process one at a time to respect Hunter's rate limits (free tier)
-  for (const prospect of needsEmail) {
+  for (const prospect of toProcess) {
     attempted++;
     try {
       const nameParts = (prospect.name || '').split(' ');
@@ -770,7 +778,7 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
       }
 
       // Brief pause between calls (be nice to free tier)
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 150));
 
     } catch (err) {
       console.warn(`[Hunter] Error for ${prospect.name}:`, err.message);
@@ -819,7 +827,10 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
 
   let found = 0;
   let attempted = 0;
-  let verifierAvailable = !!hunterApiKey;
+  // Skip Hunter verification when many prospects to avoid Netlify timeout (10s free tier).
+  // Each verify call takes ~400ms; 20 prospects × 5 patterns = up to 100 calls.
+  // Instead, just use the best guess (first.last is correct ~55% of the time).
+  let verifierAvailable = !!hunterApiKey && needsEmail.length <= 5;
 
   for (const prospect of needsEmail) {
     attempted++;

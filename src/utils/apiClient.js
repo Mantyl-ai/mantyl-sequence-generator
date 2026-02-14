@@ -1,23 +1,39 @@
 const API_BASE = '/.netlify/functions';
 
 export async function findProspects(icpParams) {
-  const res = await fetch(`${API_BASE}/find-prospects`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(icpParams),
-  });
+  // Prospect search can be slow: Apollo search + enrichment (2 API calls/person)
+  // + Hunter gap-fill + pattern guessing. Allow 30s for up to 20 prospects.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Failed to find prospects' }));
-    throw new Error(err.error || `API error: ${res.status}`);
-  }
+  try {
+    const res = await fetch(`${API_BASE}/find-prospects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(icpParams),
+      signal: controller.signal,
+    });
 
-  const data = await res.json();
-  // Debug: log what Apollo returned so we can see field availability
-  if (data._debug) {
-    console.log('[Apollo Debug]', JSON.stringify(data._debug, null, 2));
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to find prospects' }));
+      throw new Error(err.error || `API error: ${res.status}`);
+    }
+
+    const data = await res.json();
+    // Debug: log what Apollo returned so we can see field availability
+    if (data._debug) {
+      console.log('[Apollo Debug]', JSON.stringify(data._debug, null, 2));
+    }
+    return data;
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      throw new Error('Prospect search timed out. Try reducing the number of prospects.');
+    }
+    throw err;
   }
-  return data;
 }
 
 /**
