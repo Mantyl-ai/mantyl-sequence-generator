@@ -16,7 +16,6 @@ export default function App() {
   const [loadingMessage, setLoadingMessage] = useState('')
   const [loadingSub, setLoadingSub] = useState('')
   const [formData, setFormData] = useState(null)
-  const [phonePollingActive] = useState(false) // Kept for ProspectList compatibility but always false (waterfall removed)
   const [usageLimitHit, setUsageLimitHit] = useState(false)
 
   const handleSubmit = async (form) => {
@@ -307,7 +306,6 @@ export default function App() {
                 sequences={sequences}
                 selectedIndex={selectedProspect}
                 onSelectProspect={setSelectedProspect}
-                phonePollingActive={phonePollingActive}
               />
               <SequenceCopy
                 sequences={sequences}

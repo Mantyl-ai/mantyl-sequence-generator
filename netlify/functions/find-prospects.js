@@ -131,12 +131,8 @@ export async function handler(event) {
 
     // Add enrichment stats to debug
     const enrichedCount = prospects.filter(p => p.email || p.linkedinUrl).length;
-    const prospectsWithPhone = prospects.filter(p => p.phone).length;
-
-    // Phone diagnostic: phones come directly from Apollo enrichment (no async waterfall).
-    const phoneDiagnosis = prospectsWithPhone > 0
-      ? `PHONES_OK: ${prospectsWithPhone}/${prospects.length} prospects have phone numbers from Apollo enrichment.`
-      : 'NO_PHONES: Apollo enrichment did not return phone numbers. This is normal — not all contacts have phones in Apollo\'s database.';
+    // Phone numbers are not fetched (gated feature — users book a call to access).
+    const phoneDiagnosis = 'GATED: Phone numbers disabled to conserve credits. Shown as gated feature in UI.';
 
     debugInfo.enrichmentStats = {
       total: prospects.length,
@@ -144,7 +140,7 @@ export async function handler(event) {
       withVerifiedEmail: prospects.filter(p => p.emailStatus === 'verified').length,
       withGuessedEmail: prospects.filter(p => p.emailStatus === 'guessed').length,
       withLinkedin: prospects.filter(p => p.linkedinUrl).length,
-      withPhone: prospectsWithPhone,
+      withPhone: 0,
       enrichedCount,
       waterfallEnabled: false,
       phoneDiagnosis: phoneDiagnosis || 'OK',
@@ -153,7 +149,7 @@ export async function handler(event) {
         name: p.name,
         email: p.email || '(empty)',
         emailStatus: p.emailStatus || '(none)',
-        phone: p.phone || '(empty)',
+        phone: '(gated)',
         linkedin: p.linkedinUrl ? 'yes' : 'no',
         status: p.enrichmentStatus,
         enrichDebug: p._enrichDebug || '(no debug)',
@@ -332,7 +328,6 @@ async function enrichOnePerson(person, apiKey) {
       const matchBody = {
         api_key: apiKey,
         reveal_personal_emails: true,
-        reveal_phone_number: true,
       };
 
       // Use linkedin_url as primary identifier (strongest match signal)
@@ -373,14 +368,11 @@ async function enrichOnePerson(person, apiKey) {
 
         if (ep) {
           const email = isRealEmail(ep.email) ? ep.email : '';
-          const stepBPhone = extractPhone(ep);
-          // Use Step B phone if available, otherwise fall back to Step A phone
-          let phoneData = stepBPhone.number ? stepBPhone : stepAPhone;
           const linkedin = ep.linkedin_url || linkedinUrl || '';
           const emailStatus = ep.email_status || '';
           const resolvedPersonId = ep.id || personId;
 
-          console.log(`Step B for ${firstName}: email="${email}", emailStatus="${emailStatus}", phone="${phoneData.number}" (${phoneData.type})`);
+          console.log(`Step B for ${firstName}: email="${email}", emailStatus="${emailStatus}"`);
 
           return {
             apolloId: resolvedPersonId,
@@ -389,8 +381,6 @@ async function enrichOnePerson(person, apiKey) {
             company: (ep.organization || {}).name || orgName || '',
             email: email,
             emailStatus: emailStatus,
-            phone: phoneData.number,
-            phoneType: phoneData.type,
             linkedinUrl: linkedin,
             location: formatLocation(ep) || '',
             companyDomain: (ep.organization || {}).primary_domain || domain || '',
@@ -420,8 +410,6 @@ async function enrichOnePerson(person, apiKey) {
         title: idPersonData.title || person.title || '',
         company: (idPersonData.organization || {}).name || orgName || '',
         email: '',
-        phone: stepAPhone.number, // Use phone from Step A if available
-        phoneType: stepAPhone.type,
         linkedinUrl: linkedin,
         location: formatLocation(idPersonData) || '',
         companyDomain: (idPersonData.organization || {}).primary_domain || domain || '',
@@ -438,7 +426,6 @@ async function enrichOnePerson(person, apiKey) {
       title: person.title || '',
       company: orgName || '',
       email: '',
-      phone: '',
       linkedinUrl: '',
       location: '',
       companyDomain: domain || '',
@@ -454,7 +441,6 @@ async function enrichOnePerson(person, apiKey) {
       title: person.title || '',
       company: (person.organization || {}).name || '',
       email: '',
-      phone: '',
       linkedinUrl: '',
       location: '',
       companyDomain: '',
