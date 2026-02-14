@@ -35,15 +35,24 @@ export async function handler(event) {
 
     const touchpointPlan = buildTouchpointPlan(touchpointCount, channels, daySpacing);
 
-    // Generate copy for all prospects in parallel (batch by 2 to stay within Netlify 26s timeout)
-    const batchSize = 2;
+    // Scale max_tokens based on touchpoint count:
+    // Each touchpoint needs ~200-300 tokens of JSON output.
+    // 6 touchpoints ≈ 2048, 12 ≈ 4096, 20 ≈ 8192
+    const maxTokens = Math.min(Math.max(touchpointPlan.length * 400, 2048), 8192);
+
+    // Scale batch size based on prospect count to fit within Netlify Pro 26s timeout.
+    // Each Claude call takes ~3-8s depending on touchpoint count.
+    // batchSize=10 → 2 batches for 20 prospects → ~16s total.
+    const batchSize = prospects.length > 10 ? 10 : prospects.length > 4 ? 5 : 2;
     const allSequences = [];
+
+    console.log(`[Sequence] Generating ${touchpointPlan.length} touchpoints for ${prospects.length} prospects (batch=${batchSize}, maxTokens=${maxTokens})`);
 
     for (let i = 0; i < prospects.length; i += batchSize) {
       const batch = prospects.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map((prospect, batchIdx) =>
-          generateProspectSequence(ANTHROPIC_API_KEY, prospect, touchpointPlan, i + batchIdx, sender, emailSendType, tones || [tone], { productDescription, painPoint, proposedSolution, openToLearnMore })
+          generateProspectSequence(ANTHROPIC_API_KEY, prospect, touchpointPlan, i + batchIdx, sender, emailSendType, tones || [tone], { productDescription, painPoint, proposedSolution, openToLearnMore }, maxTokens)
         )
       );
       allSequences.push(...batchResults);
@@ -79,7 +88,7 @@ function buildTouchpointPlan(count, channels, daySpacing) {
   return plan;
 }
 
-async function generateProspectSequence(apiKey, prospect, touchpointPlan, prospectIndex, sender, emailSendType, tones, messagingContext) {
+async function generateProspectSequence(apiKey, prospect, touchpointPlan, prospectIndex, sender, emailSendType, tones, messagingContext, maxTokens = 2048) {
   const totalSteps = touchpointPlan.length;
 
   // Build sender sign-off block
@@ -191,7 +200,7 @@ Respond in this exact JSON format (no markdown, just raw JSON):
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
+        max_tokens: maxTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       }),
@@ -205,6 +214,11 @@ Respond in this exact JSON format (no markdown, just raw JSON):
 
     const data = await response.json();
     const content = data.content[0]?.text || '';
+
+    // Check if response was truncated (hit max_tokens limit)
+    if (data.stop_reason === 'max_tokens') {
+      console.warn(`[Sequence] Claude response TRUNCATED for ${prospect.name} (hit ${maxTokens} max_tokens). Response length: ${content.length} chars`);
+    }
 
     // Use non-greedy match to find the FIRST complete JSON object
     // Then validate it has the expected "touchpoints" key
