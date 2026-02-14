@@ -34,13 +34,36 @@ function isExempt(email) {
   return EXEMPT_EMAILS.includes(normalizeEmail(email));
 }
 
+async function getStoreData(store, key) {
+  try {
+    const data = await store.get(key, { type: 'json' });
+    return data;
+  } catch (e) {
+    // Blob not found or store empty — this is normal for first-time users
+    console.log(`[Usage] No blob for "${key}": ${e.message}`);
+    return null;
+  }
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
 
   try {
-    const store = getStore(STORE_OPTIONS);
+    let store;
+    try {
+      store = getStore(STORE_OPTIONS);
+    } catch (storeErr) {
+      // If Netlify Blobs is not available, fail open (allow usage)
+      console.error('[Usage] Cannot init blob store:', storeErr.message);
+      const email = normalizeEmail(
+        event.httpMethod === 'GET'
+          ? event.queryStringParameters?.email
+          : JSON.parse(event.body || '{}').email
+      );
+      return respond(200, { email, count: 0, allowed: true, fallback: true });
+    }
 
     if (event.httpMethod === 'GET') {
       // Check usage for an email
@@ -51,7 +74,7 @@ export async function handler(event) {
         return respond(200, { email, count: 0, allowed: true, exempt: true });
       }
 
-      const data = await store.get(email, { type: 'json' }).catch(() => null);
+      const data = await getStoreData(store, email);
       const count = data?.count || 0;
       return respond(200, { email, count, allowed: count < MAX_FREE_USES });
     }
@@ -66,15 +89,21 @@ export async function handler(event) {
         return respond(200, { email, count: 0, allowed: true, exempt: true });
       }
 
-      const data = await store.get(email, { type: 'json' }).catch(() => null);
+      const data = await getStoreData(store, email);
       const prevCount = data?.count || 0;
       const newCount = prevCount + 1;
 
-      await store.setJSON(email, {
-        count: newCount,
-        lastUsed: new Date().toISOString(),
-        firstUsed: data?.firstUsed || new Date().toISOString(),
-      });
+      try {
+        await store.setJSON(email, {
+          count: newCount,
+          lastUsed: new Date().toISOString(),
+          firstUsed: data?.firstUsed || new Date().toISOString(),
+        });
+      } catch (writeErr) {
+        // If we can't write, still return the count but log the error
+        console.error(`[Usage] Write failed for ${email}:`, writeErr.message);
+        return respond(200, { email, count: prevCount, allowed: prevCount < MAX_FREE_USES, writeError: true });
+      }
 
       console.log(`[Usage] ${email}: ${prevCount} → ${newCount} (limit: ${MAX_FREE_USES})`);
 
@@ -87,7 +116,8 @@ export async function handler(event) {
 
     return respond(405, { error: 'Method not allowed' });
   } catch (err) {
-    console.error('[Usage] Error:', err);
-    return respond(500, { error: 'Usage tracking error' });
+    console.error('[Usage] Error:', err.message, err.stack);
+    // Fail open — don't block users due to tracking errors
+    return respond(200, { count: 0, allowed: true, error: 'tracking_unavailable' });
   }
 }

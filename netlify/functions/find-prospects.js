@@ -93,10 +93,11 @@ export async function handler(event) {
     }
 
     // ── Prioritize prospects with phone data ──────────────────────────
-    // Apollo search results include has_direct_phone boolean.
-    // Sort so has_direct_phone=true people come first, then take top N.
-    const withPhone = rawPeople.filter(p => p.has_direct_phone === true);
-    const withoutPhone = rawPeople.filter(p => p.has_direct_phone !== true);
+    // Apollo search results include has_direct_phone — can be boolean true
+    // OR string "Yes" depending on Apollo's response format.
+    const hasPhone = (p) => p.has_direct_phone === true || p.has_direct_phone === 'Yes';
+    const withPhone = rawPeople.filter(hasPhone);
+    const withoutPhone = rawPeople.filter(p => !hasPhone(p));
     const sorted = [...withPhone, ...withoutPhone];
     rawPeople = sorted.slice(0, count);
 
@@ -350,15 +351,20 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
 
     // ── Step B: POST /people/match with linkedin_url to reveal email + phone ──
     // linkedin_url is the strongest identifier — triggers proper enrichment
-    // NOTE: Do NOT send webhook_url — when present, Apollo sends phone data
-    // asynchronously to the webhook instead of returning it inline.
-    // Without webhook_url, phone data comes back directly in the response.
+    // Phone retrieval is ALWAYS async via webhook (Apollo docs confirm no sync option).
+    // The initial response includes email but NOT mobile phones.
+    // Apollo fires the webhook "several minutes" later with phone data.
     try {
       const matchBody = {
         api_key: apiKey,
         reveal_personal_emails: true,
         reveal_phone_number: true,
       };
+
+      // webhook_url is REQUIRED when reveal_phone_number=true (Apollo returns 400 without it)
+      if (phoneWebhookUrl) {
+        matchBody.webhook_url = phoneWebhookUrl;
+      }
 
       // Use linkedin_url as primary identifier (strongest match signal)
       if (linkedinUrl) {
