@@ -3,16 +3,9 @@ import ICPForm from './components/ICPForm'
 import ProspectList from './components/ProspectList'
 import SequenceCopy from './components/SequenceCopy'
 import MantylLoader from './components/MantylLoader'
-import { findProspects, generateSequence, pollForPhones } from './utils/apiClient'
+import { findProspects, generateSequence, pollForPhones, checkUsage, incrementUsage } from './utils/apiClient'
 
 const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
-
-function getUsageCount() {
-  try { return parseInt(localStorage.getItem('mantyl_usage') || '0', 10) } catch { return 0 }
-}
-function incrementUsage() {
-  try { const c = getUsageCount() + 1; localStorage.setItem('mantyl_usage', String(c)); return c } catch { return 1 }
-}
 
 export default function App() {
   const [step, setStep] = useState('form')
@@ -23,12 +16,27 @@ export default function App() {
   const [loadingMessage, setLoadingMessage] = useState('')
   const [loadingSub, setLoadingSub] = useState('')
   const [formData, setFormData] = useState(null)
-  const [usageCount, setUsageCount] = useState(getUsageCount())
   const [phonePollingActive, setPhonePollingActive] = useState(false)
+  const [usageLimitHit, setUsageLimitHit] = useState(false)
 
   const handleSubmit = async (form) => {
     setError(null)
     setFormData(form)
+
+    // ── Usage gate: check if this email has exceeded the free limit ──
+    const userEmail = (form.senderEmail || '').trim().toLowerCase()
+    if (userEmail) {
+      try {
+        const usage = await checkUsage(userEmail)
+        if (!usage.allowed) {
+          setUsageLimitHit(true)
+          setStep('paywall')
+          return
+        }
+      } catch (e) {
+        console.warn('[Usage] Check failed, proceeding:', e.message)
+      }
+    }
 
     setStep('loading')
     setLoadingMessage('Searching for prospects matching your ICP...')
@@ -93,7 +101,7 @@ export default function App() {
           name: form.senderName,
           title: form.senderTitle,
           company: form.senderCompany,
-          phone: form.senderPhone,
+          email: form.senderEmail,
           linkedin: form.senderLinkedin,
           calendly: form.senderCalendly,
         },
@@ -104,8 +112,12 @@ export default function App() {
       const generatedSeqs = seqData.sequences || []
       setSequences(generatedSeqs)
       setSelectedProspect(0)
-      const newCount = incrementUsage()
-      setUsageCount(newCount)
+
+      // Increment server-side usage count for this email
+      const userEmail = (form.senderEmail || '').trim().toLowerCase()
+      if (userEmail) {
+        try { await incrementUsage(userEmail) } catch (e) { console.warn('[Usage] Increment failed:', e.message) }
+      }
 
       // Show partial-failure warning but still display results
       if (seqData.partialFailure && generatedSeqs.length < totalProspects) {
@@ -278,18 +290,30 @@ export default function App() {
           </>
         )}
 
+        {step === 'paywall' && (
+          <div className="paywall-screen fade-in">
+            <div className="paywall-card">
+              <div className="paywall-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent-peach, #D4956A)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+              </div>
+              <h2 className="paywall-title">Thanks for trying this free tool!</h2>
+              <p className="paywall-desc">
+                It looks like you've exceeded the free usage limit. If you'd like this custom-built for your business with <strong>unlimited usage</strong>, personalized to your exact ICP, messaging, and workflow — let's talk.
+              </p>
+              <a href={CALENDLY_URL} target="_blank" rel="noopener noreferrer" className="paywall-cta">
+                Book a Free Consultation
+              </a>
+              <button className="paywall-back" onClick={handleReset}>
+                ← Back to form
+              </button>
+            </div>
+          </div>
+        )}
+
         {step === 'results' && (
           <>
-            {usageCount >= 3 && (
-              <div className="usage-limit-banner fade-in">
-                <div className="usage-limit-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent-peach)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
-                <div className="usage-limit-text">
-                  <strong>Thank you for using our tool!</strong>
-                  <p>If you're interested in learning more, we'd love to build a custom version tailored to your team's exact workflow, ICP, and messaging.</p>
-                </div>
-                <a href={CALENDLY_URL} target="_blank" rel="noopener noreferrer" className="usage-limit-btn">Book a Meeting</a>
-              </div>
-            )}
             <div className="results-top-bar fade-in">
               <div className="results-summary">
                 <span className="results-icon">✦</span>

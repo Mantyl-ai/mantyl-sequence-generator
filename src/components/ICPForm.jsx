@@ -397,7 +397,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
     senderName: '',
     senderTitle: '',
     senderCompany: '',
-    senderPhone: '',
+    senderEmail: '',
     senderLinkedin: '',
     senderCalendly: '',
   })
@@ -491,7 +491,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
     onSubmit(form)
   }
 
-  const isFormValid = form.industries.length > 0 && (form.companySizes.length > 0 || form.companySegments.length > 0) && form.geographies.length > 0 && form.jobTitles.trim() && form.senderName.trim() && form.senderTitle.trim() && form.senderCompany.trim() && form.productDescription.trim()
+  const isFormValid = form.industries.length > 0 && (form.companySizes.length > 0 || form.companySegments.length > 0) && form.geographies.length > 0 && form.jobTitles.trim() && form.senderName.trim() && form.senderTitle.trim() && form.senderCompany.trim() && form.senderEmail.trim() && form.senderEmail.includes('@') && form.productDescription.trim()
 
   return (
     <form onSubmit={handleSubmit}>
@@ -516,8 +516,8 @@ export default function ICPForm({ onSubmit, isLoading }) {
             <input type="text" value={form.senderCompany} onChange={e => update('senderCompany', e.target.value)} placeholder="e.g. mantyl.ai" required />
           </div>
           <div className="form-group">
-            <label>Phone <span className="optional-tag">Optional</span></label>
-            <input type="text" value={form.senderPhone} onChange={e => update('senderPhone', e.target.value)} placeholder="e.g. (415) 555-0142" />
+            <label>Company Email <RequiredAsterisk /></label>
+            <input type="email" value={form.senderEmail} onChange={e => update('senderEmail', e.target.value)} placeholder="e.g. sarah@company.com" required />
           </div>
           <div className="form-group">
             <label>LinkedIn Profile <span className="optional-tag">Optional</span></label>
@@ -707,9 +707,9 @@ export default function ICPForm({ onSubmit, isLoading }) {
         </h3>
         <div className="form-grid">
           <div className="form-group">
-            <label>Number of Prospects (max 20) <RequiredAsterisk /></label>
+            <label>Number of Prospects (max 10) <RequiredAsterisk /></label>
             <div className="range-wrapper">
-              <input type="range" min="1" max="20" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
+              <input type="range" min="1" max="10" value={form.prospectCount} onChange={e => update('prospectCount', parseInt(e.target.value))} />
               <span className="range-value">{form.prospectCount}</span>
             </div>
           </div>

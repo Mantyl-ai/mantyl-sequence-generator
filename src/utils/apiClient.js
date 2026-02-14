@@ -295,6 +295,30 @@ export function pollForPhones(sessionId, initialProspects, onUpdate, options = {
   return () => { stopped = true; };
 }
 
+/**
+ * Check usage count for an email address.
+ * Returns { email, count, allowed, exempt? }
+ */
+export async function checkUsage(email) {
+  const res = await fetch(`${API_BASE}/usage-tracker?email=${encodeURIComponent(email)}`);
+  if (!res.ok) return { email, count: 0, allowed: true }; // Fail open
+  return res.json();
+}
+
+/**
+ * Increment usage count for an email address.
+ * Returns { email, count, allowed }
+ */
+export async function incrementUsage(email) {
+  const res = await fetch(`${API_BASE}/usage-tracker`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) return { email, count: 0, allowed: true }; // Fail open
+  return res.json();
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
