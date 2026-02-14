@@ -359,6 +359,7 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
         api_key: apiKey,
         reveal_personal_emails: true,
         reveal_phone_number: true,
+        run_waterfall_phone: true, // Required to trigger async phone waterfall lookup
       };
 
       // webhook_url is REQUIRED when reveal_phone_number=true (Apollo returns 400 without it)
