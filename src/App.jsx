@@ -72,14 +72,16 @@ export default function App() {
             setProspects(updatedProspects)
             foundProspects = updatedProspects // Update local ref too
           },
-          { interval: 8000, maxDuration: 300000 } // Poll every 8s for up to 5 min (Apollo webhook takes "several minutes")
+          {
+            interval: 8000,
+            maxDuration: 300000, // Poll every 8s for up to 5 min (Apollo webhook takes "several minutes")
+            onPollingEnd: () => setPhonePollingActive(false), // Auto-stop UI when polling ends (stale data or all phones found)
+          }
         )
-        // Stop polling after 5 min regardless
+        // Safety fallback: stop polling after 5 min regardless
         setTimeout(() => {
           stopPolling()
-          setPhonePollingActive(false)
         }, 300000)
-
       }
 
       const totalProspects = foundProspects.length

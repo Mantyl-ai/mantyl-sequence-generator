@@ -219,21 +219,32 @@ export function pollForPhones(sessionId, initialProspects, onUpdate, options = {
   const { interval = 5000, maxDuration = 120000 } = options;
   let stopped = false;
   let lastCount = 0;
+  let stalePolls = 0; // Count consecutive polls with no new phones
+  const MAX_STALE_POLLS = 8; // Stop after 8 consecutive polls with no new data (~64s of no new phones)
   const startTime = Date.now();
 
   // Mutable ref: tracks the latest prospects array so each poll cycle
   // sees phones found in previous cycles (fixes stale closure bug).
   let currentProspects = initialProspects;
 
+  // Callback to notify parent when polling stops (so UI can update)
+  const stopAndNotify = () => {
+    if (stopped) return;
+    stopped = true;
+    console.log(`[Phone Poll] Stopped. ${currentProspects.filter(p => p.phone).length}/${currentProspects.length} prospects have phones.`);
+    // Trigger a final update so the parent knows polling has ended
+    if (options.onPollingEnd) options.onPollingEnd();
+  };
+
   const poll = async () => {
     if (stopped) return;
     if (Date.now() - startTime > maxDuration) {
       console.log('[Phone Poll] Max duration reached, stopping');
+      stopAndNotify();
       return;
     }
 
     try {
-      // Poll the phone-webhook function directly (handles both POST from Apollo and GET from us)
       const res = await fetch(`${API_BASE}/phone-webhook/${sessionId}`);
       if (!res.ok) {
         console.warn(`[Phone Poll] HTTP ${res.status} from phone-webhook`);
@@ -245,16 +256,15 @@ export function pollForPhones(sessionId, initialProspects, onUpdate, options = {
       const phones = data.phones || {};
       const phoneCount = Object.keys(phones).length;
 
-      console.log(`[Phone Poll] Status: ${data.status}, entries: ${phoneCount}, totalReceived: ${data.totalReceived}`);
+      console.log(`[Phone Poll] Status: ${data.status}, entries: ${phoneCount}, totalReceived: ${data.totalReceived}, stalePolls: ${stalePolls}/${MAX_STALE_POLLS}`);
+
+      let foundNewPhones = false;
 
       if (phoneCount > 0 && phoneCount >= lastCount) {
-        lastCount = phoneCount;
-
         // Match phones to prospects by apolloId, email, linkedin, or name
         const updated = currentProspects.map(p => {
           if (p.phone) return p; // Already has phone
 
-          // Try matching by various keys — Apollo ID is most reliable
           const idKey = p.apolloId ? `id:${p.apolloId}` : '';
           const emailKey = `email:${(p.email || '').toLowerCase()}`;
           const linkedinKey = `linkedin:${p.linkedinUrl || ''}`;
@@ -275,9 +285,31 @@ export function pollForPhones(sessionId, initialProspects, onUpdate, options = {
         const prevPhones = currentProspects.filter(p => p.phone).length;
 
         if (phonesFound > prevPhones) {
+          foundNewPhones = true;
+          stalePolls = 0; // Reset stale counter
+          lastCount = phoneCount;
           console.log(`[Phone Poll] Updated ${phonesFound - prevPhones} new phones (total: ${phonesFound})`);
-          currentProspects = updated; // Update our mutable ref for next cycle
+          currentProspects = updated;
           onUpdate(updated);
+
+          // If all prospects now have phones, stop polling early
+          if (phonesFound >= currentProspects.length) {
+            console.log('[Phone Poll] All prospects have phones — stopping early');
+            stopAndNotify();
+            return;
+          }
+        }
+      }
+
+      // Track stale polls — if no new phones for too long, stop polling
+      if (!foundNewPhones) {
+        stalePolls++;
+        // Only start counting stale polls after the first 30s (give Apollo time to start sending)
+        const elapsed = Date.now() - startTime;
+        if (elapsed > 30000 && stalePolls >= MAX_STALE_POLLS) {
+          console.log(`[Phone Poll] ${MAX_STALE_POLLS} consecutive polls with no new data — stopping`);
+          stopAndNotify();
+          return;
         }
       }
     } catch (err) {
@@ -292,7 +324,7 @@ export function pollForPhones(sessionId, initialProspects, onUpdate, options = {
   // Start polling after a short delay (give Apollo time to start sending)
   setTimeout(poll, 3000);
 
-  return () => { stopped = true; };
+  return stopAndNotify;
 }
 
 /**

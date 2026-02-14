@@ -6,8 +6,10 @@ import crypto from 'crypto';
 
 export async function handler(event) {
   const FUNCTION_START = Date.now();
-  // Netlify Pro timeout = 26s. We stop all work at 24s to leave room for response serialization.
-  const HARD_DEADLINE_MS = 24000;
+  // Netlify Pro timeout = 26s. We stop all work at 21s to leave comfortable buffer
+  // for response serialization + network overhead. Previous value of 24s caused
+  // 26.9s total runs because Hunter/Pattern checks overshoot their sub-deadlines.
+  const HARD_DEADLINE_MS = 21000;
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
@@ -142,23 +144,32 @@ export async function handler(event) {
     const enrichedCount = prospects.filter(p => p.email || p.linkedinUrl).length;
     const prospectsWithPhone = prospects.filter(p => p.phone).length;
 
-    // Phone diagnostic: if 0 phones found, provide clear root cause diagnosis
+    // Phone diagnostic: check waterfall status to determine phone delivery path.
+    // Apollo phone reveals are ALWAYS async — phones arrive via webhook minutes later.
+    // The synchronous response never contains phone data, so checking for phone fields
+    // in the response is misleading. Instead, check if the waterfall was accepted.
     let phoneDiagnosis = '';
-    if (prospectsWithPhone === 0) {
+    {
       const firstDebug = prospects[0]?._enrichDebug;
       const stepB = firstDebug?.steps?.find(s => s.step === 'B_match');
-      const personKeys = stepB?.personKeys || [];
-      const hasAnyPhoneKey = personKeys.some(k => k.includes('phone'));
-      const waterfallFailed = stepB?.waterfallStatus?.status === 'failed';
+      const waterfallStatus = stepB?.waterfallStatus;
 
-      if (!hasAnyPhoneKey && waterfallFailed) {
-        phoneDiagnosis = 'APOLLO_PLAN_LIMITATION: Apollo enrichment returns 0 phone fields and waterfall phone returns "failed". Your Apollo API key does not have phone reveal credits. To get work phones, either: (1) upgrade your Apollo plan at app.apollo.io → Plans & Billing, or (2) add a third-party phone provider API key.';
-      } else if (!hasAnyPhoneKey) {
-        phoneDiagnosis = 'NO_PHONE_FIELDS: Apollo enrichment response contains no phone-related fields. The API key likely lacks phone reveal access.';
+      if (waterfallStatus?.status === 'failed') {
+        phoneDiagnosis = 'WATERFALL_FAILED: Apollo waterfall phone reveal returned "failed". Your Apollo plan may not include phone credits. Upgrade at app.apollo.io → Plans & Billing.';
+        console.warn(`[Phone Diagnosis] ${phoneDiagnosis}`);
+      } else if (waterfallStatus?.status === 'accepted' || waterfallStatus?.id) {
+        // Waterfall accepted — phones will arrive via webhook asynchronously
+        phoneDiagnosis = prospectsWithPhone > 0
+          ? `WATERFALL_OK: ${prospectsWithPhone} phones found synchronously. More may arrive via webhook.`
+          : 'WATERFALL_ACCEPTED: Phone reveal accepted. Phones will be delivered asynchronously via webhook (typically 1-5 minutes).';
+        console.log(`[Phone Diagnosis] ${phoneDiagnosis}`);
+      } else if (!waterfallStatus) {
+        phoneDiagnosis = 'NO_WATERFALL: No waterfall status returned — phone reveal may not have been triggered.';
+        console.warn(`[Phone Diagnosis] ${phoneDiagnosis}`);
       } else {
-        phoneDiagnosis = 'PHONE_FIELDS_EMPTY: Apollo returned phone fields but all were empty for these contacts.';
+        phoneDiagnosis = `WATERFALL_UNKNOWN: Waterfall status="${waterfallStatus?.status || 'unknown'}". Phones may still arrive via webhook.`;
+        console.log(`[Phone Diagnosis] ${phoneDiagnosis}`);
       }
-      console.warn(`[Phone Diagnosis] ${phoneDiagnosis}`);
     }
 
     debugInfo.enrichmentStats = {
@@ -190,7 +201,7 @@ export async function handler(event) {
 
     if (HUNTER_API_KEY && prospects.length > 0) {
       const hunterTimeLeft = HARD_DEADLINE_MS - (Date.now() - FUNCTION_START);
-      if (hunterTimeLeft > 3000) { // Only run Hunter if we have at least 3s left
+      if (hunterTimeLeft > 4000) { // Only run Hunter if we have at least 4s left (need room for pattern guessing)
         try {
           const hunterResults = await hunterGapFillEmails(prospects, HUNTER_API_KEY, FUNCTION_START, HARD_DEADLINE_MS);
           console.log(`[Hunter] Gap-fill complete: ${hunterResults.found}/${hunterResults.attempted} emails found`);
@@ -218,8 +229,8 @@ export async function handler(event) {
     }
 
     const totalElapsed = Date.now() - FUNCTION_START;
-    console.log(`[Timing] Total function time: ${totalElapsed}ms (${Math.round(totalElapsed / 1000)}s / 26s limit)`);
-    debugInfo.timing = { totalMs: totalElapsed, limitMs: 26000 };
+    console.log(`[Timing] Total function time: ${totalElapsed}ms (${Math.round(totalElapsed / 1000)}s / 26s limit, work deadline: ${HARD_DEADLINE_MS}ms)`);
+    debugInfo.timing = { totalMs: totalElapsed, limitMs: 26000, workDeadlineMs: HARD_DEADLINE_MS };
 
     return respond(200, {
       prospects,
@@ -826,9 +837,9 @@ async function hunterGapFillEmails(prospects, hunterApiKey, functionStart, hardD
 
   // Process one at a time to respect Hunter's rate limits (free tier)
   for (const prospect of toProcess) {
-    // Time budget check: stop 6s before hard deadline (leave room for pattern guessing)
+    // Time budget check: stop 5s before hard deadline (leave room for pattern guessing)
     const elapsed = Date.now() - functionStart;
-    if (elapsed > hardDeadlineMs - 6000) {
+    if (elapsed > hardDeadlineMs - 5000) {
       console.warn(`[Hunter] Time budget hit (${Math.round(elapsed / 1000)}s elapsed) — stopping with ${toProcess.length - attempted} lookups remaining`);
       break;
     }
@@ -933,17 +944,18 @@ async function guessEmailPatterns(prospects, hunterApiKey, functionStart, hardDe
   let found = 0;
   let attempted = 0;
   let verifierAvailable = !!hunterApiKey;
-  // Budget: max 15 Hunter verify API calls total to stay within Netlify Pro timeout (26s).
-  // For <=5 prospects: try multiple patterns per person (up to 5 each).
-  // For >5 prospects: try only the top 2 patterns per person.
-  const MAX_VERIFY_CALLS = 15;
+  // Budget: max 8 Hunter verify API calls total to stay within Netlify Pro timeout (26s).
+  // Each verify call takes ~500ms + 100ms pause = ~600ms, so 8 calls ≈ 5s max.
+  // For <=3 prospects: try multiple patterns per person (up to 3 each).
+  // For >3 prospects: try only the top 1-2 patterns per person.
+  const MAX_VERIFY_CALLS = 8;
   let verifyCallsUsed = 0;
-  const patternsPerProspect = needsEmail.length <= 5 ? 5 : 2;
+  const patternsPerProspect = needsEmail.length <= 3 ? 3 : 1;
 
   for (const prospect of needsEmail) {
-    // Time budget: if we're within 1s of deadline, stop verifying and just assign best-guess emails
+    // Time budget: if we're within 2s of deadline, stop verifying and just assign best-guess emails
     const elapsed = Date.now() - functionStart;
-    if (elapsed > hardDeadlineMs - 1000) {
+    if (elapsed > hardDeadlineMs - 2000) {
       // Assign best-guess emails to ALL remaining prospects without verification
       console.warn(`[Pattern] Hard deadline approaching (${Math.round(elapsed / 1000)}s) — assigning best-guess emails to ${needsEmail.length - attempted} remaining prospects`);
       for (const remaining of needsEmail.slice(attempted)) {
@@ -996,9 +1008,9 @@ async function guessEmailPatterns(prospects, hunterApiKey, functionStart, hardDe
 
     if (verifierAvailable && verifyCallsUsed < MAX_VERIFY_CALLS) {
       for (const candidate of candidatesToTry) {
-        // Time budget check: stop 2s before hard deadline
+        // Time budget check: stop 3s before hard deadline
         const elapsed = Date.now() - functionStart;
-        if (elapsed > hardDeadlineMs - 2000) {
+        if (elapsed > hardDeadlineMs - 3000) {
           console.warn(`[Pattern] Time budget hit (${Math.round(elapsed / 1000)}s elapsed) — using best guess for remaining`);
           verifierAvailable = false;
           break;
