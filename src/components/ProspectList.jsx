@@ -37,7 +37,7 @@ function getStatusLabel(status) {
   return 'Minimal data'
 }
 
-export default function ProspectList({ prospects, sequences, selectedIndex, onSelectProspect, phonePollingActive }) {
+export default function ProspectList({ prospects, sequences, selectedIndex, onSelectProspect }) {
   if (!prospects || prospects.length === 0) {
     return (
       <div className="panel">
@@ -129,10 +129,6 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                           {p.phoneType === 'work_direct' ? 'Direct' : p.phoneType === 'mobile' ? 'Mobile' : p.phoneType}
                         </span>
                       )}
-                    </span>
-                  ) : phonePollingActive ? (
-                    <span className="data-loading" style={{ fontSize: 11, color: 'var(--accent-blue)', opacity: 0.7 }}>
-                      <span className="phone-spinner" />Searching...
                     </span>
                   ) : (
                     <span className="data-empty">—</span>

@@ -3,7 +3,7 @@ import ICPForm from './components/ICPForm'
 import ProspectList from './components/ProspectList'
 import SequenceCopy from './components/SequenceCopy'
 import MantylLoader from './components/MantylLoader'
-import { findProspects, generateSequence, pollForPhones, checkUsage, incrementUsage } from './utils/apiClient'
+import { findProspects, generateSequence, checkUsage, incrementUsage } from './utils/apiClient'
 
 const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
 
@@ -16,7 +16,7 @@ export default function App() {
   const [loadingMessage, setLoadingMessage] = useState('')
   const [loadingSub, setLoadingSub] = useState('')
   const [formData, setFormData] = useState(null)
-  const [phonePollingActive, setPhonePollingActive] = useState(false)
+  const [phonePollingActive] = useState(false) // Kept for ProspectList compatibility but always false (waterfall removed)
   const [usageLimitHit, setUsageLimitHit] = useState(false)
 
   const handleSubmit = async (form) => {
@@ -61,28 +61,6 @@ export default function App() {
 
       foundProspects = prospectData.prospects
       setProspects(foundProspects)
-
-      // Start polling for async phone data from Apollo webhook
-      if (prospectData.sessionId) {
-        setPhonePollingActive(true)
-        const stopPolling = pollForPhones(
-          prospectData.sessionId,
-          foundProspects,
-          (updatedProspects) => {
-            setProspects(updatedProspects)
-            foundProspects = updatedProspects // Update local ref too
-          },
-          {
-            interval: 8000,
-            maxDuration: 300000, // Poll every 8s for up to 5 min (Apollo webhook takes "several minutes")
-            onPollingEnd: () => setPhonePollingActive(false), // Auto-stop UI when polling ends (stale data or all phones found)
-          }
-        )
-        // Safety fallback: stop polling after 5 min regardless
-        setTimeout(() => {
-          stopPolling()
-        }, 300000)
-      }
 
       const totalProspects = foundProspects.length
       setLoadingMessage(`Writing personalized sequences for ${totalProspects} prospects...`)

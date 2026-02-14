@@ -1,8 +1,6 @@
 // Netlify Function: Find prospects via Apollo People Search + Enrichment
-// Step 1: Search (free, no credits) → Step 2: Enrich (1 credit/person for email)
-// Step 2b: Request phone reveals via webhook (async, Apollo sends phones to phone-webhook.js)
+// Step 1: Search (free, no credits) → Step 2: Enrich (1 credit/person for email + phone)
 // Step 3: Hunter.io gap-fill for emails Apollo missed (synchronous, free tier = 25/month)
-import crypto from 'crypto';
 
 export async function handler(event) {
   const FUNCTION_START = Date.now();
@@ -26,15 +24,6 @@ export async function handler(event) {
         'Get your free API key at app.apollo.io → Settings → Integrations → API Keys.'
     });
   }
-
-  // Generate session ID for phone webhook tracking
-  const sessionId = crypto.randomUUID();
-
-  // Build webhook URL for async phone delivery
-  // Use path-based sessionId (not query params) — some APIs strip query strings from webhooks
-  const siteUrl = process.env.URL || 'https://tools.mantyl.ai';
-  const phoneWebhookUrl = `${siteUrl}/.netlify/functions/phone-webhook/${sessionId}`;
-  console.log(`[Phone Webhook] URL: ${phoneWebhookUrl}`);
 
   try {
     const body = JSON.parse(event.body);
@@ -137,40 +126,17 @@ export async function handler(event) {
     // The api_search endpoint returns obfuscated data (no email/phone/linkedin).
     // We use the person ID to fetch full details, then fall back to /people/match.
     const enrichStart = Date.now();
-    let prospects = await enrichProspects(rawPeople, APOLLO_API_KEY, phoneWebhookUrl);
+    let prospects = await enrichProspects(rawPeople, APOLLO_API_KEY);
     console.log(`[Timing] Enrichment took ${Date.now() - enrichStart}ms for ${prospects.length} prospects`);
 
     // Add enrichment stats to debug
     const enrichedCount = prospects.filter(p => p.email || p.linkedinUrl).length;
     const prospectsWithPhone = prospects.filter(p => p.phone).length;
 
-    // Phone diagnostic: check waterfall status to determine phone delivery path.
-    // Apollo phone reveals are ALWAYS async — phones arrive via webhook minutes later.
-    // The synchronous response never contains phone data, so checking for phone fields
-    // in the response is misleading. Instead, check if the waterfall was accepted.
-    let phoneDiagnosis = '';
-    {
-      const firstDebug = prospects[0]?._enrichDebug;
-      const stepB = firstDebug?.steps?.find(s => s.step === 'B_match');
-      const waterfallStatus = stepB?.waterfallStatus;
-
-      if (waterfallStatus?.status === 'failed') {
-        phoneDiagnosis = 'WATERFALL_FAILED: Apollo waterfall phone reveal returned "failed". Your Apollo plan may not include phone credits. Upgrade at app.apollo.io → Plans & Billing.';
-        console.warn(`[Phone Diagnosis] ${phoneDiagnosis}`);
-      } else if (waterfallStatus?.status === 'accepted' || waterfallStatus?.id) {
-        // Waterfall accepted — phones will arrive via webhook asynchronously
-        phoneDiagnosis = prospectsWithPhone > 0
-          ? `WATERFALL_OK: ${prospectsWithPhone} phones found synchronously. More may arrive via webhook.`
-          : 'WATERFALL_ACCEPTED: Phone reveal accepted. Phones will be delivered asynchronously via webhook (typically 1-5 minutes).';
-        console.log(`[Phone Diagnosis] ${phoneDiagnosis}`);
-      } else if (!waterfallStatus) {
-        phoneDiagnosis = 'NO_WATERFALL: No waterfall status returned — phone reveal may not have been triggered.';
-        console.warn(`[Phone Diagnosis] ${phoneDiagnosis}`);
-      } else {
-        phoneDiagnosis = `WATERFALL_UNKNOWN: Waterfall status="${waterfallStatus?.status || 'unknown'}". Phones may still arrive via webhook.`;
-        console.log(`[Phone Diagnosis] ${phoneDiagnosis}`);
-      }
-    }
+    // Phone diagnostic: phones come directly from Apollo enrichment (no async waterfall).
+    const phoneDiagnosis = prospectsWithPhone > 0
+      ? `PHONES_OK: ${prospectsWithPhone}/${prospects.length} prospects have phone numbers from Apollo enrichment.`
+      : 'NO_PHONES: Apollo enrichment did not return phone numbers. This is normal — not all contacts have phones in Apollo\'s database.';
 
     debugInfo.enrichmentStats = {
       total: prospects.length,
@@ -180,7 +146,7 @@ export async function handler(event) {
       withLinkedin: prospects.filter(p => p.linkedinUrl).length,
       withPhone: prospectsWithPhone,
       enrichedCount,
-      waterfallEnabled: true,
+      waterfallEnabled: false,
       phoneDiagnosis: phoneDiagnosis || 'OK',
       // Show first 3 prospects' full enrichment debug (Step A + Step B + Step C results)
       sampleProspects: prospects.slice(0, 3).map(p => ({
@@ -236,7 +202,6 @@ export async function handler(event) {
       prospects,
       total: prospects.length,
       source: HUNTER_API_KEY ? 'apollo+hunter' : 'apollo',
-      sessionId, // For phone polling — frontend uses this to check for async phone data
       _debug: debugInfo,
     });
 
@@ -251,14 +216,14 @@ export async function handler(event) {
 // Batches requests (10 at a time) to avoid Apollo rate limits.
 // Netlify Pro timeout = 26s. With sequential A→B enrichment per person,
 // 20 people in 2 batches ≈ 3s enrichment + Hunter/Pattern ≈ 15-20s total.
-async function enrichProspects(rawPeople, apiKey, phoneWebhookUrl) {
+async function enrichProspects(rawPeople, apiKey) {
   const BATCH_SIZE = 10;
   const BATCH_DELAY = 200; // 200ms between batches (was 1000ms — too slow for 20 people)
   const results = [];
 
   for (let i = 0; i < rawPeople.length; i += BATCH_SIZE) {
     const batch = rawPeople.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.all(batch.map(person => enrichOnePerson(person, apiKey, phoneWebhookUrl)));
+    const batchResults = await Promise.all(batch.map(person => enrichOnePerson(person, apiKey)));
     results.push(...batchResults);
 
     // Brief pause between batches (skip after last batch)
@@ -279,7 +244,7 @@ function isRealEmail(email) {
   return email.includes('@') && !email.includes('domain.com');
 }
 
-async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
+async function enrichOnePerson(person, apiKey) {
   try {
     const org = person.organization || {};
     const firstName = person.first_name || '';
@@ -361,22 +326,14 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
     }
 
     // ── Step B: POST /people/match with linkedin_url to reveal email + phone ──
-    // linkedin_url is the strongest identifier — triggers proper enrichment
-    // Phone retrieval is ALWAYS async via webhook (Apollo docs confirm no sync option).
-    // The initial response includes email but NOT mobile phones.
-    // Apollo fires the webhook "several minutes" later with phone data.
+    // linkedin_url is the strongest identifier — triggers proper enrichment.
+    // Phone numbers come directly from Apollo's database (no async waterfall).
     try {
       const matchBody = {
         api_key: apiKey,
         reveal_personal_emails: true,
         reveal_phone_number: true,
-        run_waterfall_phone: true, // Required to trigger async phone waterfall lookup
       };
-
-      // webhook_url is REQUIRED when reveal_phone_number=true (Apollo returns 400 without it)
-      if (phoneWebhookUrl) {
-        matchBody.webhook_url = phoneWebhookUrl;
-      }
 
       // Use linkedin_url as primary identifier (strongest match signal)
       if (linkedinUrl) {
@@ -401,7 +358,6 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
       if (matchResponse.ok) {
         const matchData = await matchResponse.json();
         const ep = matchData.person;
-        const waterfallStatus = matchData.waterfall || null;
 
         enrichDebug.steps.push({
           step: 'B_match',
@@ -411,7 +367,6 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
           emailIsReal: ep?.email ? isRealEmail(ep.email) : false,
           emailStatus: ep?.email_status || '(null)',
           matchedBy: linkedinUrl ? 'linkedin_url' : 'name+company',
-          waterfallStatus: waterfallStatus,
           personKeys: ep ? Object.keys(ep) : [],
           phoneFieldsInResponse: ep ? Object.keys(ep).filter(k => k.toLowerCase().includes('phone')) : [],
         });
@@ -425,7 +380,7 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
           const emailStatus = ep.email_status || '';
           const resolvedPersonId = ep.id || personId;
 
-          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", stepBPhone="${stepBPhone.number}" (${stepBPhone.type}), stepAPhone="${stepAPhone.number}" (${stepAPhone.type}), finalPhone="${phoneData.number}" (${phoneData.type}), waterfall=${JSON.stringify(waterfallStatus)}`);
+          console.log(`Step B for ${firstName}: email="${email}", emailStatus="${emailStatus}", phone="${phoneData.number}" (${phoneData.type})`);
 
           return {
             apolloId: resolvedPersonId,
