@@ -5,6 +5,10 @@
 import crypto from 'crypto';
 
 export async function handler(event) {
+  const FUNCTION_START = Date.now();
+  // Netlify Pro timeout = 26s. We stop all work at 24s to leave room for response serialization.
+  const HARD_DEADLINE_MS = 24000;
+
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
@@ -106,7 +110,9 @@ export async function handler(event) {
     // ── Step 2: Enrich each person via Apollo (ID lookup + match fallback) ─
     // The api_search endpoint returns obfuscated data (no email/phone/linkedin).
     // We use the person ID to fetch full details, then fall back to /people/match.
+    const enrichStart = Date.now();
     let prospects = await enrichProspects(rawPeople, APOLLO_API_KEY, phoneWebhookUrl);
+    console.log(`[Timing] Enrichment took ${Date.now() - enrichStart}ms for ${prospects.length} prospects`);
 
     // Add enrichment stats to debug
     const enrichedCount = prospects.filter(p => p.email || p.linkedinUrl).length;
@@ -137,12 +143,18 @@ export async function handler(event) {
     const HUNTER_API_KEY = process.env.HUNTER_API_KEY;
 
     if (HUNTER_API_KEY && prospects.length > 0) {
-      try {
-        const hunterResults = await hunterGapFillEmails(prospects, HUNTER_API_KEY);
-        console.log(`[Hunter] Gap-fill complete: ${hunterResults.found}/${hunterResults.attempted} emails found`);
-        debugInfo.hunterStats = hunterResults;
-      } catch (hunterErr) {
-        console.warn('[Hunter] Gap-fill failed:', hunterErr.message);
+      const hunterTimeLeft = HARD_DEADLINE_MS - (Date.now() - FUNCTION_START);
+      if (hunterTimeLeft > 3000) { // Only run Hunter if we have at least 3s left
+        try {
+          const hunterResults = await hunterGapFillEmails(prospects, HUNTER_API_KEY, FUNCTION_START, HARD_DEADLINE_MS);
+          console.log(`[Hunter] Gap-fill complete: ${hunterResults.found}/${hunterResults.attempted} emails found`);
+          debugInfo.hunterStats = hunterResults;
+        } catch (hunterErr) {
+          console.warn('[Hunter] Gap-fill failed:', hunterErr.message);
+        }
+      } else {
+        console.warn(`[Hunter] Skipped — only ${Math.round(hunterTimeLeft / 1000)}s left (need 3s minimum)`);
+        debugInfo.hunterStats = { skipped: true, reason: 'time_budget_exhausted' };
       }
     }
 
@@ -153,10 +165,15 @@ export async function handler(event) {
     // ALWAYS assigns an email — never leaves a prospect without one.
     const stillMissingEmail = prospects.filter(p => !p.email);
     if (stillMissingEmail.length > 0) {
-      const patternResults = await guessEmailPatterns(prospects, HUNTER_API_KEY);
-      console.log(`[Pattern] Guessed ${patternResults.found}/${patternResults.attempted} emails from patterns`);
+      const patternTimeLeft = HARD_DEADLINE_MS - (Date.now() - FUNCTION_START);
+      const patternResults = await guessEmailPatterns(prospects, HUNTER_API_KEY, FUNCTION_START, HARD_DEADLINE_MS);
+      console.log(`[Pattern] Guessed ${patternResults.found}/${patternResults.attempted} emails from patterns (${Math.round(patternTimeLeft / 1000)}s budget)`);
       debugInfo.patternStats = patternResults;
     }
+
+    const totalElapsed = Date.now() - FUNCTION_START;
+    console.log(`[Timing] Total function time: ${totalElapsed}ms (${Math.round(totalElapsed / 1000)}s / 26s limit)`);
+    debugInfo.timing = { totalMs: totalElapsed, limitMs: 26000 };
 
     return respond(200, {
       prospects,
@@ -167,7 +184,8 @@ export async function handler(event) {
     });
 
   } catch (err) {
-    console.error('Error finding prospects:', err);
+    const totalElapsed = Date.now() - FUNCTION_START;
+    console.error(`Error finding prospects (after ${totalElapsed}ms):`, err);
     return respond(500, { error: err.message || 'Failed to find prospects' });
   }
 }
@@ -696,7 +714,7 @@ function buildApolloFilters({ industries, industry, companySegments, companySegm
 //
 // API: GET https://api.hunter.io/v2/email-finder?domain=X&first_name=Y&last_name=Z&api_key=K
 // Response: { data: { email: "found@email.com", score: 91, ... } }
-async function hunterGapFillEmails(prospects, hunterApiKey) {
+async function hunterGapFillEmails(prospects, hunterApiKey, functionStart, hardDeadlineMs) {
   const needsEmail = prospects.filter(p => !p.email && p.companyDomain);
 
   if (needsEmail.length === 0) {
@@ -704,8 +722,8 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
     return { attempted: 0, found: 0 };
   }
 
-  // Cap Hunter lookups to stay within Netlify Pro function timeout (26s).
-  // Hunter calls are sequential — 10 calls ≈ 8 seconds max.
+  // Cap Hunter lookups — use all available time but stop 6s before deadline
+  // (reserve time for pattern guessing step after Hunter)
   const MAX_HUNTER_LOOKUPS = 10;
   const toProcess = needsEmail.slice(0, MAX_HUNTER_LOOKUPS);
 
@@ -716,6 +734,12 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
 
   // Process one at a time to respect Hunter's rate limits (free tier)
   for (const prospect of toProcess) {
+    // Time budget check: stop 6s before hard deadline (leave room for pattern guessing)
+    const elapsed = Date.now() - functionStart;
+    if (elapsed > hardDeadlineMs - 6000) {
+      console.warn(`[Hunter] Time budget hit (${Math.round(elapsed / 1000)}s elapsed) — stopping with ${toProcess.length - attempted} lookups remaining`);
+      break;
+    }
     attempted++;
     try {
       const nameParts = (prospect.name || '').split(' ');
@@ -790,7 +814,7 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
 //   first@domain.com       (~15%)
 //   firstl@domain.com      (~8%)
 //   first_last@domain.com  (~5%)
-async function guessEmailPatterns(prospects, hunterApiKey) {
+async function guessEmailPatterns(prospects, hunterApiKey, functionStart, hardDeadlineMs) {
   // First: infer missing domains from company name or LinkedIn URL
   for (const p of prospects) {
     if (!p.companyDomain && p.company) {
@@ -825,6 +849,26 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
   const patternsPerProspect = needsEmail.length <= 5 ? 5 : 2;
 
   for (const prospect of needsEmail) {
+    // Time budget: if we're within 1s of deadline, stop verifying and just assign best-guess emails
+    const elapsed = Date.now() - functionStart;
+    if (elapsed > hardDeadlineMs - 1000) {
+      // Assign best-guess emails to ALL remaining prospects without verification
+      console.warn(`[Pattern] Hard deadline approaching (${Math.round(elapsed / 1000)}s) — assigning best-guess emails to ${needsEmail.length - attempted} remaining prospects`);
+      for (const remaining of needsEmail.slice(attempted)) {
+        const rDomain = (remaining.companyDomain || '').toLowerCase();
+        const rParts = (remaining.name || '').split(' ');
+        const rFirst = (rParts[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+        const rLast = (rParts.slice(1).join(' ') || '').toLowerCase().replace(/[^a-z]/g, '');
+        if (rFirst && rLast && rDomain) {
+          remaining.email = `${rFirst}.${rLast}@${rDomain}`;
+          remaining.emailStatus = 'pattern_guessed';
+          remaining.emailSource = 'pattern';
+          remaining.enrichmentStatus = remaining.linkedinUrl ? 'enriched' : 'partial';
+          found++;
+        }
+      }
+      break;
+    }
     attempted++;
     const domain = prospect.companyDomain.toLowerCase();
     const nameParts = (prospect.name || '').split(' ');
@@ -860,6 +904,13 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
 
     if (verifierAvailable && verifyCallsUsed < MAX_VERIFY_CALLS) {
       for (const candidate of candidatesToTry) {
+        // Time budget check: stop 2s before hard deadline
+        const elapsed = Date.now() - functionStart;
+        if (elapsed > hardDeadlineMs - 2000) {
+          console.warn(`[Pattern] Time budget hit (${Math.round(elapsed / 1000)}s elapsed) — using best guess for remaining`);
+          verifierAvailable = false;
+          break;
+        }
         if (verifyCallsUsed >= MAX_VERIFY_CALLS) {
           console.log(`[Pattern] Verify budget exhausted (${MAX_VERIFY_CALLS} calls) — using best guess for remaining`);
           break;
