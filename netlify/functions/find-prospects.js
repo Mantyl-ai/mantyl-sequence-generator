@@ -348,20 +348,17 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
       }
     }
 
-    // ── Step B: POST /people/match with linkedin_url to reveal email ────
+    // ── Step B: POST /people/match with linkedin_url to reveal email + phone ──
     // linkedin_url is the strongest identifier — triggers proper enrichment
+    // NOTE: Do NOT send webhook_url — when present, Apollo sends phone data
+    // asynchronously to the webhook instead of returning it inline.
+    // Without webhook_url, phone data comes back directly in the response.
     try {
       const matchBody = {
         api_key: apiKey,
         reveal_personal_emails: true,
         reveal_phone_number: true,
-        run_waterfall_phone: true,
       };
-
-      // Add webhook URL for async phone delivery
-      if (phoneWebhookUrl) {
-        matchBody.webhook_url = phoneWebhookUrl;
-      }
 
       // Use linkedin_url as primary identifier (strongest match signal)
       if (linkedinUrl) {
@@ -397,7 +394,8 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
           emailStatus: ep?.email_status || '(null)',
           matchedBy: linkedinUrl ? 'linkedin_url' : 'name+company',
           waterfallStatus: waterfallStatus,
-          personKeys: ep ? Object.keys(ep).slice(0, 15) : [],
+          personKeys: ep ? Object.keys(ep) : [],
+          phoneFieldsInResponse: ep ? Object.keys(ep).filter(k => k.toLowerCase().includes('phone')) : [],
         });
 
         if (ep) {
