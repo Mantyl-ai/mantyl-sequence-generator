@@ -2,19 +2,16 @@
 // POST: Apollo sends waterfall phone data here after /people/match enrichment
 // GET:  Frontend polls this same function to retrieve stored phone data
 //
-// Using /tmp/ storage (shared within same function's Lambda container)
-// This works because both POST (webhook) and GET (polling) hit the same function.
+// Using Netlify Blobs for storage — persists across Lambda instances.
+// /tmp/ does NOT work because POST (webhook) and GET (polling) can hit
+// different Lambda instances, each with their own /tmp.
 //
 // Apollo waterfall payload format:
 // { people: [{ id, waterfall: { phone_numbers: [{ vendors: [{ phone_numbers: [...], status }] }] } }] }
 
-import { promises as fs } from 'fs';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { getStore } from '@netlify/blobs';
 
-const STORE_DIR = '/tmp/phone-store';
-
-// Ensure store dir exists on cold start
-try { mkdirSync(STORE_DIR, { recursive: true }); } catch (e) { /* exists */ }
+const STORE_NAME = 'phone-data';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -27,7 +24,7 @@ export async function handler(event) {
   if (event.httpMethod === 'GET') {
     if (!sessionId) return respond(400, { error: 'Missing sessionId' });
 
-    const data = readStore(sessionId);
+    const data = await readStore(sessionId);
     return respond(200, {
       phones: data.phones || {},
       totalReceived: data.totalReceived || 0,
@@ -119,8 +116,8 @@ export async function handler(event) {
       results.push({ personId, name: personName, email: personEmail, linkedin: personLinkedin, phone: bestPhone, phoneType, allPhones, verifiedPhones });
     }
 
-    // ── Store results in /tmp/ ──
-    const existing = readStore(sessionId);
+    // ── Store results in Netlify Blobs (shared across all Lambda instances) ──
+    const existing = await readStore(sessionId);
 
     for (const r of results) {
       const entry = {
@@ -139,7 +136,7 @@ export async function handler(event) {
       existing.totalReceived = (existing.totalReceived || 0) + 1;
     }
 
-    writeStore(sessionId, existing);
+    await writeStore(sessionId, existing);
     console.log(`[phone-webhook] Stored ${results.length} results for session ${sessionId}. Total received: ${existing.totalReceived}`);
 
     return respond(200, { ok: true, stored: results.length, phones: results.map(r => r.phone).filter(Boolean) });
@@ -150,20 +147,25 @@ export async function handler(event) {
   }
 }
 
-// ── /tmp/ file storage helpers ──
-function readStore(sessionId) {
+// ── Netlify Blobs storage helpers ──
+async function readStore(sessionId) {
   try {
-    const filePath = `${STORE_DIR}/${sessionId}.json`;
-    if (existsSync(filePath)) {
-      return JSON.parse(readFileSync(filePath, 'utf8'));
-    }
-  } catch (e) { /* file doesn't exist or parse error */ }
+    const store = getStore(STORE_NAME);
+    const data = await store.get(sessionId, { type: 'json' });
+    if (data) return data;
+  } catch (e) {
+    console.warn('[phone-webhook] Blob read error:', e.message);
+  }
   return { phones: {}, totalReceived: 0 };
 }
 
-function writeStore(sessionId, data) {
-  const filePath = `${STORE_DIR}/${sessionId}.json`;
-  writeFileSync(filePath, JSON.stringify(data));
+async function writeStore(sessionId, data) {
+  try {
+    const store = getStore(STORE_NAME);
+    await store.setJSON(sessionId, data);
+  } catch (e) {
+    console.error('[phone-webhook] Blob write error:', e.message);
+  }
 }
 
 function extractSessionId(event) {
