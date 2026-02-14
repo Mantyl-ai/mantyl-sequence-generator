@@ -212,175 +212,140 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
     const personId = person.id || '';
     const domain = org.primary_domain || org.website_url || '';
     const orgName = org.name || person.organization_name || '';
+    const lastName = person.last_name || '';
 
     console.log(`Enriching ${firstName} (id=${personId}) at ${orgName}...`);
 
     // ══════════════════════════════════════════════════════════════════════
-    // TWO-STEP ENRICHMENT (based on Apollo docs):
+    // PARALLEL ENRICHMENT (optimized for Netlify 10s timeout):
     //
     // Step A: GET /people/{id} → get linkedin_url + full name (free, no credit)
-    // Step B: POST /people/match with linkedin_url → reveal email (1 credit)
+    // Step B: POST /people/match → reveal email (1 credit)
     //
-    // Why: The api_search endpoint returns obfuscated data. The GET endpoint
-    // returns the profile (including linkedin_url) but NOT the email.
-    // The /people/match endpoint with linkedin_url triggers an actual
-    // enrichment that spends 1 credit to reveal the email.
-    //
-    // Phone numbers: Apollo requires a webhook_url and delivers phones
-    // asynchronously. We can't get them synchronously in a serverless function.
+    // CRITICAL: Steps A and B run IN PARALLEL via Promise.all.
+    // Step B uses name+company matching (since linkedin_url isn't available yet).
+    // We combine results: email from Step B, linkedin from Step A or B.
+    // This cuts per-person time from ~1.5s (sequential) to ~0.8s (parallel).
     // ══════════════════════════════════════════════════════════════════════
 
-    let linkedinUrl = '';
-    let fullName = '';
-    let lastName = '';
-    let idPersonData = null;
     let enrichDebug = { steps: [] };
 
-    // ── Step A: GET /people/{id} to get linkedin_url and full name ──────
-    if (personId) {
+    // ── Build Step A promise: GET /people/{id} ───────────────────────────
+    const stepAPromise = personId ? (async () => {
       try {
         const idResponse = await fetch(`https://api.apollo.io/api/v1/people/${personId}`, {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-          },
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
         });
-
         if (idResponse.ok) {
           const idData = await idResponse.json();
-          idPersonData = idData.person || idData;
-
-          linkedinUrl = idPersonData.linkedin_url || '';
-          fullName = idPersonData.name || '';
-          lastName = idPersonData.last_name || '';
-
+          const p = idData.person || idData;
           enrichDebug.steps.push({
-            step: 'A_id_lookup',
-            status: 'ok',
-            gotLinkedin: !!linkedinUrl,
-            gotLastName: !!lastName,
-            rawEmail: idPersonData.email || '(null)',
-            linkedin: linkedinUrl || '(null)',
+            step: 'A_id_lookup', status: 'ok',
+            gotLinkedin: !!p.linkedin_url, gotLastName: !!p.last_name,
+            rawEmail: p.email || '(null)', linkedin: p.linkedin_url || '(null)',
           });
-
-          console.log(`Step A for ${firstName}: linkedin="${linkedinUrl}", lastName="${lastName}", rawEmail="${idPersonData.email || ''}"`);
+          console.log(`Step A for ${firstName}: linkedin="${p.linkedin_url || ''}", lastName="${p.last_name || ''}"`);
+          return p;
         } else {
           enrichDebug.steps.push({ step: 'A_id_lookup', status: idResponse.status });
-          console.warn(`Step A failed for ${firstName}: ${idResponse.status}`);
+          return null;
         }
-      } catch (idErr) {
-        enrichDebug.steps.push({ step: 'A_id_lookup', error: idErr.message });
-        console.warn(`Step A error for ${firstName}:`, idErr.message);
+      } catch (err) {
+        enrichDebug.steps.push({ step: 'A_id_lookup', error: err.message });
+        return null;
       }
-    }
+    })() : Promise.resolve(null);
 
-    // ── Step B: POST /people/match with linkedin_url to reveal email ────
-    // Per Apollo docs, linkedin_url is one of the strongest identifiers
-    // and should trigger proper enrichment (email reveal, costs 1 credit)
-    try {
-      const matchBody = {
-        api_key: apiKey,
-        reveal_personal_emails: true,
-        reveal_phone_number: true,
-        // Waterfall phone enrichment: cascade through third-party providers (async via webhook)
-        // NOTE: Do NOT enable run_waterfall_email — it makes email delivery async via webhook
-        // instead of returning it in the synchronous response, which breaks our flow.
-        // Emails are returned synchronously by /people/match without waterfall.
-        run_waterfall_phone: true,
-      };
-
-      // Add webhook URL for async phone delivery (Apollo requires this for phone reveals)
-      if (phoneWebhookUrl) {
-        matchBody.webhook_url = phoneWebhookUrl;
-        console.log(`[Phone] Sending webhook_url to Apollo: ${phoneWebhookUrl}`);
-      }
-
-      // Use linkedin_url as primary identifier (strongest match signal)
-      if (linkedinUrl) {
-        matchBody.linkedin_url = linkedinUrl;
-      } else {
-        // Fallback: use name + company
-        matchBody.first_name = firstName;
+    // ── Build Step B promise: POST /people/match (name+company) ──────────
+    const stepBPromise = (async () => {
+      try {
+        const matchBody = {
+          api_key: apiKey,
+          reveal_personal_emails: true,
+          reveal_phone_number: true,
+          run_waterfall_phone: true,
+          // Use name + company matching (can't wait for linkedin from Step A — parallel)
+          first_name: firstName,
+          organization_name: orgName,
+        };
         if (lastName) matchBody.last_name = lastName;
-        matchBody.organization_name = orgName;
         if (domain) matchBody.domain = domain;
-      }
 
-      const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-        },
-        body: JSON.stringify(matchBody),
-      });
+        if (phoneWebhookUrl) {
+          matchBody.webhook_url = phoneWebhookUrl;
+        }
 
-      if (matchResponse.ok) {
-        const matchData = await matchResponse.json();
-        const ep = matchData.person;
-
-        // Check for waterfall status in the response (async waterfall results)
-        const waterfallStatus = matchData.waterfall || null;
-
-        enrichDebug.steps.push({
-          step: 'B_match',
-          status: 'ok',
-          hasPerson: !!ep,
-          rawEmail: ep?.email || '(null)',
-          emailIsReal: ep?.email ? isRealEmail(ep.email) : false,
-          emailStatus: ep?.email_status || '(null)',
-          matchedBy: linkedinUrl ? 'linkedin_url' : 'name+company',
-          waterfallStatus: waterfallStatus,
-          personKeys: ep ? Object.keys(ep).slice(0, 15) : [],
+        const matchResponse = await fetch('https://api.apollo.io/api/v1/people/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+          body: JSON.stringify(matchBody),
         });
 
-        if (ep) {
-          const email = isRealEmail(ep.email) ? ep.email : '';
-          const phoneData = extractPhone(ep);
-          const linkedin = ep.linkedin_url || linkedinUrl || '';
-          const emailStatus = ep.email_status || ''; // "verified", "guessed", "unavailable", etc.
-
-          console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", phone="${phoneData.number}" (${phoneData.type}), waterfall=${JSON.stringify(waterfallStatus)}`);
-
-          return {
-            apolloId: ep.id || personId, // Apollo person ID for phone webhook matching
-            name: ep.name || fullName || `${ep.first_name || firstName} ${ep.last_name || lastName}`.trim() || 'Unknown',
-            title: ep.title || person.title || '',
-            company: (ep.organization || {}).name || orgName || '',
-            email: email,
-            emailStatus: emailStatus, // Apollo validation: "verified", "guessed", "unavailable", etc.
-            phone: phoneData.number,
-            phoneType: phoneData.type, // "work_direct" or "mobile"
-            linkedinUrl: linkedin,
-            location: formatLocation(ep) || '',
-            companyDomain: (ep.organization || {}).primary_domain || domain || '',
-            companyIndustry: (ep.organization || {}).industry || org.industry || '',
-            companySize: (ep.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
-            enrichmentStatus: email ? 'enriched' : (linkedin ? 'partial' : 'minimal'),
-            _enrichDebug: enrichDebug,
-          };
+        if (matchResponse.ok) {
+          const matchData = await matchResponse.json();
+          const ep = matchData.person;
+          const waterfallStatus = matchData.waterfall || null;
+          enrichDebug.steps.push({
+            step: 'B_match', status: 'ok', hasPerson: !!ep,
+            rawEmail: ep?.email || '(null)',
+            emailIsReal: ep?.email ? isRealEmail(ep.email) : false,
+            emailStatus: ep?.email_status || '(null)',
+            matchedBy: 'name+company', waterfallStatus,
+          });
+          if (ep) {
+            console.log(`Step B for ${firstName}: email="${ep.email || ''}", emailStatus="${ep.email_status || ''}", linkedin="${ep.linkedin_url || ''}"`);
+          }
+          return ep || null;
         } else {
-          console.warn(`Step B for ${firstName}: no person returned`);
+          const errText = await matchResponse.text().catch(() => '');
+          enrichDebug.steps.push({ step: 'B_match', status: matchResponse.status, error: errText.slice(0, 200) });
+          return null;
         }
-      } else {
-        const errText = await matchResponse.text().catch(() => '');
-        enrichDebug.steps.push({ step: 'B_match', status: matchResponse.status, error: errText.slice(0, 200) });
-        console.warn(`Step B failed for ${firstName}: ${matchResponse.status} ${errText.slice(0, 200)}`);
+      } catch (err) {
+        enrichDebug.steps.push({ step: 'B_match', error: err.message });
+        return null;
       }
-    } catch (matchErr) {
-      enrichDebug.steps.push({ step: 'B_match', error: matchErr.message });
-      console.warn(`Step B error for ${firstName}:`, matchErr.message);
+    })();
+
+    // ── Run both steps in parallel ───────────────────────────────────────
+    const [idPersonData, matchPerson] = await Promise.all([stepAPromise, stepBPromise]);
+
+    // ── Combine results: email from match, linkedin from either ──────────
+    if (matchPerson) {
+      const email = isRealEmail(matchPerson.email) ? matchPerson.email : '';
+      const phoneData = extractPhone(matchPerson);
+      const linkedin = matchPerson.linkedin_url || (idPersonData && idPersonData.linkedin_url) || '';
+      const emailStatus = matchPerson.email_status || '';
+      const fullName = matchPerson.name || (idPersonData && idPersonData.name) || `${firstName} ${lastName}`.trim() || 'Unknown';
+
+      return {
+        apolloId: matchPerson.id || personId,
+        name: fullName,
+        title: matchPerson.title || person.title || '',
+        company: (matchPerson.organization || {}).name || orgName || '',
+        email,
+        emailStatus,
+        phone: phoneData.number,
+        phoneType: phoneData.type,
+        linkedinUrl: linkedin,
+        location: formatLocation(matchPerson) || '',
+        companyDomain: (matchPerson.organization || {}).primary_domain || domain || '',
+        companyIndustry: (matchPerson.organization || {}).industry || org.industry || '',
+        companySize: (matchPerson.organization || {}).estimated_num_employees || org.estimated_num_employees || '',
+        enrichmentStatus: email ? 'enriched' : (linkedin ? 'partial' : 'minimal'),
+        _enrichDebug: enrichDebug,
+      };
     }
 
     // ── Fallback: return ID lookup data if available, else search data ──
     if (idPersonData) {
       const linkedin = idPersonData.linkedin_url || '';
       return {
-        name: idPersonData.name || fullName || firstName || 'Unknown',
+        name: idPersonData.name || `${firstName} ${lastName}`.trim() || 'Unknown',
         title: idPersonData.title || person.title || '',
         company: (idPersonData.organization || {}).name || orgName || '',
-        email: '', // no revealed email available
+        email: '',
         phone: '',
         linkedinUrl: linkedin,
         location: formatLocation(idPersonData) || '',
@@ -715,9 +680,9 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
     return { attempted: 0, found: 0 };
   }
 
-  // Cap at 5 Hunter lookups to stay within Netlify function timeout (10s free tier).
-  // Hunter calls are sequential with 300ms delays — 5 calls ≈ 4 seconds.
-  const MAX_HUNTER_LOOKUPS = 5;
+  // Cap at 3 Hunter lookups to stay within Netlify function timeout (10s free tier).
+  // Hunter calls are sequential — 3 calls ≈ 2.5 seconds.
+  const MAX_HUNTER_LOOKUPS = 3;
   const toProcess = needsEmail.slice(0, MAX_HUNTER_LOOKUPS);
 
   console.log(`[Hunter] ${needsEmail.length}/${prospects.length} prospects missing email — querying Hunter.io (capped at ${toProcess.length})`);
@@ -828,10 +793,10 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
   let found = 0;
   let attempted = 0;
   let verifierAvailable = !!hunterApiKey;
-  // Budget: max 10 Hunter verify API calls total to stay within Netlify timeout.
+  // Budget: max 5 Hunter verify API calls total to stay within Netlify timeout.
   // For <=5 prospects: try multiple patterns per person (up to 5 each).
   // For >5 prospects: try only the top 1 pattern per person (quick verify).
-  const MAX_VERIFY_CALLS = 10;
+  const MAX_VERIFY_CALLS = 5;
   let verifyCallsUsed = 0;
   const patternsPerProspect = needsEmail.length <= 5 ? 5 : 1;
 
@@ -912,7 +877,7 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
             console.log(`[Pattern] ${candidate.email} is ${status} — trying next pattern`);
           }
 
-          await new Promise(r => setTimeout(r, 150));
+          await new Promise(r => setTimeout(r, 100));
         } catch (err) {
           console.warn(`[Pattern] Verify error for ${candidate.email}:`, err.message);
         }
