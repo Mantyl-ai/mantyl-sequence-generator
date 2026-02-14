@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 
 const INDUSTRY_GROUPS = {
   'Software & Technology': [
@@ -258,6 +258,123 @@ const SvgIcon = ({ name, size = 16, color = 'currentColor' }) => {
 
 const RequiredAsterisk = () => <span className="required-asterisk">*</span>
 
+/* ── Reusable Dropdown Multi-Select ─────────────────────────── */
+function DropdownMultiSelect({
+  label,
+  placeholder,
+  groups,
+  selected,
+  onToggleItem,
+  onToggleGroup,
+  getItemValue,
+  getItemLabel,
+  isOpen,
+  onToggleOpen,
+  onClose,
+  searchable = false,
+}) {
+  const ref = useRef(null)
+  const [search, setSearch] = useState('')
+
+  // Summarize selected items for trigger text
+  const count = selected.length
+  const summaryText = count === 0
+    ? null
+    : count <= 3
+      ? selected.map(v => {
+          // Find the label for this value
+          for (const items of Object.values(groups)) {
+            for (const item of items) {
+              const val = getItemValue(item)
+              const lbl = getItemLabel(item)
+              if (val === v) return lbl
+            }
+          }
+          return v
+        }).join(', ')
+      : null
+
+  return (
+    <div className="dropdown-multi-select" ref={ref}>
+      {isOpen && <div className="dropdown-backdrop" onClick={onClose} />}
+      <button
+        type="button"
+        className={`dropdown-trigger ${isOpen ? 'open' : ''} ${count > 0 ? 'has-selection' : ''}`}
+        onClick={onToggleOpen}
+      >
+        <span className={`dropdown-trigger-text ${count === 0 ? 'placeholder' : ''}`}>
+          {count === 0 ? placeholder : (summaryText || `${count} selected`)}
+        </span>
+        <span className="dropdown-trigger-right">
+          {count > 0 && <span className="dropdown-count">{count}</span>}
+          <span className="dropdown-arrow">▾</span>
+        </span>
+      </button>
+
+      {isOpen && (
+        <div className="dropdown-panel">
+          {searchable && (
+            <div className="dropdown-panel-search">
+              <input
+                type="text"
+                placeholder="Search..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+          {count > 0 && (
+            <button type="button" className="dropdown-clear-all" onClick={() => {
+              // Clear all
+              selected.forEach(v => onToggleItem(v))
+            }}>
+              Clear all ({count})
+            </button>
+          )}
+          {Object.entries(groups).map(([groupName, items]) => {
+            const filteredItems = search
+              ? items.filter(item => getItemLabel(item).toLowerCase().includes(search.toLowerCase()))
+              : items
+            if (search && filteredItems.length === 0) return null
+
+            const groupValues = items.map(getItemValue)
+            const selectedCount = groupValues.filter(v => selected.includes(v)).length
+            const allSelected = items.length > 0 && items.every(item => selected.includes(getItemValue(item)))
+
+            return (
+              <div key={groupName} className="checkbox-group">
+                <div className="checkbox-group-header" onClick={() => {}}>
+                  <span className="checkbox-group-name">{groupName}</span>
+                  {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
+                  {onToggleGroup && (
+                    <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); onToggleGroup(groupName) }}>
+                      {allSelected ? 'Clear' : 'All'}
+                    </button>
+                  )}
+                </div>
+                <div className="checkbox-group-items">
+                  {filteredItems.map(item => {
+                    const val = getItemValue(item)
+                    const lbl = getItemLabel(item)
+                    const checked = selected.includes(val)
+                    return (
+                      <label key={val} className={`checkbox-item ${checked ? 'checked' : ''}`}>
+                        <input type="checkbox" checked={checked} onChange={() => onToggleItem(val)} />
+                        <span>{lbl}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ICPForm({ onSubmit, isLoading }) {
   const [form, setForm] = useState({
     industries: [],
@@ -285,11 +402,8 @@ export default function ICPForm({ onSubmit, isLoading }) {
     senderCalendly: '',
   })
 
-  // Track which industry/geography groups are expanded
-  const [expandedIndustries, setExpandedIndustries] = useState({})
-  const [expandedGeographies, setExpandedGeographies] = useState({})
-  const [expandedTech, setExpandedTech] = useState({})
-  const [expandedCriteria, setExpandedCriteria] = useState({})
+  // Track which dropdown is currently open (only one at a time)
+  const [openDropdown, setOpenDropdown] = useState(null)
 
   const update = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -423,41 +537,43 @@ export default function ICPForm({ onSubmit, isLoading }) {
           ICP Parameters
         </h3>
         <div className="form-grid">
-          <div className="form-group full-width">
-            <label>Industries <RequiredAsterisk /> {form.industries.length > 0 && <span className="multi-count">{form.industries.length} selected</span>}</label>
-            <div className="multi-checkbox-groups">
-              {Object.entries(INDUSTRY_GROUPS).map(([group, items]) => {
-                const isExpanded = expandedIndustries[group]
-                const selectedCount = items.filter(i => form.industries.includes(i)).length
-                const allSelected = items.every(i => form.industries.includes(i))
-                return (
-                  <div key={group} className="checkbox-group">
-                    <div className="checkbox-group-header" onClick={() => setExpandedIndustries(prev => ({ ...prev, [group]: !prev[group] }))}>
-                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
-                      <span className="checkbox-group-name">{group}</span>
-                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
-                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleIndustryGroup(group) }}>
-                        {allSelected ? 'Clear' : 'All'}
-                      </button>
-                    </div>
-                    {isExpanded && (
-                      <div className="checkbox-group-items">
-                        {items.map(i => (
-                          <label key={i} className={`checkbox-item ${form.industries.includes(i) ? 'checked' : ''}`}>
-                            <input type="checkbox" checked={form.industries.includes(i)} onChange={() => toggleIndustry(i)} />
-                            <span>{i}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+          {/* Industries — dropdown multi-select */}
+          <div className="form-group">
+            <label>Industries <RequiredAsterisk /></label>
+            <DropdownMultiSelect
+              placeholder="Select industries..."
+              groups={INDUSTRY_GROUPS}
+              selected={form.industries}
+              onToggleItem={toggleIndustry}
+              onToggleGroup={toggleIndustryGroup}
+              getItemValue={item => item}
+              getItemLabel={item => item}
+              isOpen={openDropdown === 'industries'}
+              onToggleOpen={() => setOpenDropdown(openDropdown === 'industries' ? null : 'industries')}
+              onClose={() => setOpenDropdown(null)}
+              searchable
+            />
+          </div>
+
+          {/* Geography — dropdown multi-select */}
+          <div className="form-group">
+            <label>Geography / Regions <RequiredAsterisk /></label>
+            <DropdownMultiSelect
+              placeholder="Select regions..."
+              groups={GEOGRAPHY_GROUPS}
+              selected={form.geographies}
+              onToggleItem={toggleGeography}
+              onToggleGroup={toggleGeoGroup}
+              getItemValue={item => item.value}
+              getItemLabel={item => item.label}
+              isOpen={openDropdown === 'geographies'}
+              onToggleOpen={() => setOpenDropdown(openDropdown === 'geographies' ? null : 'geographies')}
+              onClose={() => setOpenDropdown(null)}
+            />
           </div>
 
           <div className="form-group">
-            <label>Company Segment <span className="optional-tag">Optional — select multiple</span></label>
+            <label>Company Segment <span className="optional-tag">Optional</span></label>
             <div className="segment-pills">
               {COMPANY_SEGMENTS.map(seg => (
                 <button
@@ -470,6 +586,17 @@ export default function ICPForm({ onSubmit, isLoading }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="form-group">
+            <label>Job Titles <RequiredAsterisk /></label>
+            <input
+              type="text"
+              value={form.jobTitles}
+              onChange={e => update('jobTitles', e.target.value)}
+              placeholder="e.g. VP Sales, CRO, Head of Growth"
+              required
+            />
           </div>
 
           <div className="form-group full-width">
@@ -488,114 +615,39 @@ export default function ICPForm({ onSubmit, isLoading }) {
             </div>
           </div>
 
+          {/* Tech Stack — dropdown multi-select */}
           <div className="form-group">
-            <label>Job Titles <RequiredAsterisk /></label>
-            <input
-              type="text"
-              value={form.jobTitles}
-              onChange={e => update('jobTitles', e.target.value)}
-              placeholder="e.g. VP Sales, CRO, Head of Growth, SDR Manager"
-              required
+            <label>Tech Stack <span className="optional-tag">Optional</span> <span className="section-subtitle">— tools they use</span></label>
+            <DropdownMultiSelect
+              placeholder="Select tools..."
+              groups={TECH_STACK_GROUPS}
+              selected={form.techStack}
+              onToggleItem={toggleTech}
+              onToggleGroup={toggleTechGroup}
+              getItemValue={item => item}
+              getItemLabel={item => item}
+              isOpen={openDropdown === 'techStack'}
+              onToggleOpen={() => setOpenDropdown(openDropdown === 'techStack' ? null : 'techStack')}
+              onClose={() => setOpenDropdown(null)}
+              searchable
             />
           </div>
 
-          <div className="form-group full-width">
-            <label>Geography / Regions <RequiredAsterisk /> {form.geographies.length > 0 && <span className="multi-count">{form.geographies.length} selected</span>}</label>
-            <div className="multi-checkbox-groups">
-              {Object.entries(GEOGRAPHY_GROUPS).map(([group, items]) => {
-                const isExpanded = expandedGeographies[group]
-                const selectedCount = items.filter(g => form.geographies.includes(g.value)).length
-                const allSelected = items.every(g => form.geographies.includes(g.value))
-                return (
-                  <div key={group} className="checkbox-group">
-                    <div className="checkbox-group-header" onClick={() => setExpandedGeographies(prev => ({ ...prev, [group]: !prev[group] }))}>
-                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
-                      <span className="checkbox-group-name">{group}</span>
-                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
-                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleGeoGroup(group) }}>
-                        {allSelected ? 'Clear' : 'All'}
-                      </button>
-                    </div>
-                    {isExpanded && (
-                      <div className="checkbox-group-items">
-                        {items.map(g => (
-                          <label key={g.value} className={`checkbox-item ${form.geographies.includes(g.value) ? 'checked' : ''}`}>
-                            <input type="checkbox" checked={form.geographies.includes(g.value)} onChange={() => toggleGeography(g.value)} />
-                            <span>{g.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="form-group full-width">
-            <label>Tech Stack <span className="optional-tag">Optional</span> {form.techStack.length > 0 && <span className="multi-count">{form.techStack.length} selected</span>} <span className="section-subtitle">— tools they currently use</span></label>
-            <div className="multi-checkbox-groups">
-              {Object.entries(TECH_STACK_GROUPS).map(([group, items]) => {
-                const isExpanded = expandedTech[group]
-                const selectedCount = items.filter(i => form.techStack.includes(i)).length
-                const allSelected = items.every(i => form.techStack.includes(i))
-                return (
-                  <div key={group} className="checkbox-group">
-                    <div className="checkbox-group-header" onClick={() => setExpandedTech(prev => ({ ...prev, [group]: !prev[group] }))}>
-                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
-                      <span className="checkbox-group-name">{group}</span>
-                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
-                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleTechGroup(group) }}>
-                        {allSelected ? 'Clear' : 'All'}
-                      </button>
-                    </div>
-                    {isExpanded && (
-                      <div className="checkbox-group-items">
-                        {items.map(i => (
-                          <label key={i} className={`checkbox-item ${form.techStack.includes(i) ? 'checked' : ''}`}>
-                            <input type="checkbox" checked={form.techStack.includes(i)} onChange={() => toggleTech(i)} />
-                            <span>{i}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="form-group full-width">
-            <label>Qualifying Criteria <span className="optional-tag">Optional</span> {form.otherCriteria.length > 0 && <span className="multi-count">{form.otherCriteria.length} selected</span>} <span className="section-subtitle">— seniority, department, revenue, funding</span></label>
-            <div className="multi-checkbox-groups">
-              {Object.entries(QUALIFYING_CRITERIA_GROUPS).map(([group, items]) => {
-                const isExpanded = expandedCriteria[group]
-                const selectedCount = items.filter(c => form.otherCriteria.includes(c.value)).length
-                const allSelected = items.every(c => form.otherCriteria.includes(c.value))
-                return (
-                  <div key={group} className="checkbox-group">
-                    <div className="checkbox-group-header" onClick={() => setExpandedCriteria(prev => ({ ...prev, [group]: !prev[group] }))}>
-                      <span className="checkbox-group-arrow">{isExpanded ? '▾' : '▸'}</span>
-                      <span className="checkbox-group-name">{group}</span>
-                      {selectedCount > 0 && <span className="checkbox-group-count">{selectedCount}</span>}
-                      <button type="button" className="checkbox-group-toggle" onClick={e => { e.stopPropagation(); toggleCriteriaGroup(group) }}>
-                        {allSelected ? 'Clear' : 'All'}
-                      </button>
-                    </div>
-                    {isExpanded && (
-                      <div className="checkbox-group-items">
-                        {items.map(c => (
-                          <label key={c.value} className={`checkbox-item ${form.otherCriteria.includes(c.value) ? 'checked' : ''}`}>
-                            <input type="checkbox" checked={form.otherCriteria.includes(c.value)} onChange={() => toggleCriteria(c.value)} />
-                            <span>{c.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+          {/* Qualifying Criteria — dropdown multi-select */}
+          <div className="form-group">
+            <label>Qualifying Criteria <span className="optional-tag">Optional</span></label>
+            <DropdownMultiSelect
+              placeholder="Seniority, department, revenue..."
+              groups={QUALIFYING_CRITERIA_GROUPS}
+              selected={form.otherCriteria}
+              onToggleItem={toggleCriteria}
+              onToggleGroup={toggleCriteriaGroup}
+              getItemValue={item => item.value}
+              getItemLabel={item => item.label}
+              isOpen={openDropdown === 'otherCriteria'}
+              onToggleOpen={() => setOpenDropdown(openDropdown === 'otherCriteria' ? null : 'otherCriteria')}
+              onClose={() => setOpenDropdown(null)}
+            />
           </div>
         </div>
       </div>
