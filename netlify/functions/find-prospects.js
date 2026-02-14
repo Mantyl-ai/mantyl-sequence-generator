@@ -680,9 +680,9 @@ async function hunterGapFillEmails(prospects, hunterApiKey) {
     return { attempted: 0, found: 0 };
   }
 
-  // Cap at 3 Hunter lookups to stay within Netlify function timeout (10s free tier).
-  // Hunter calls are sequential — 3 calls ≈ 2.5 seconds.
-  const MAX_HUNTER_LOOKUPS = 3;
+  // Cap Hunter lookups to stay within Netlify Pro function timeout (26s).
+  // Hunter calls are sequential — 10 calls ≈ 8 seconds max.
+  const MAX_HUNTER_LOOKUPS = 10;
   const toProcess = needsEmail.slice(0, MAX_HUNTER_LOOKUPS);
 
   console.log(`[Hunter] ${needsEmail.length}/${prospects.length} prospects missing email — querying Hunter.io (capped at ${toProcess.length})`);
@@ -793,12 +793,12 @@ async function guessEmailPatterns(prospects, hunterApiKey) {
   let found = 0;
   let attempted = 0;
   let verifierAvailable = !!hunterApiKey;
-  // Budget: max 5 Hunter verify API calls total to stay within Netlify timeout.
+  // Budget: max 15 Hunter verify API calls total to stay within Netlify Pro timeout (26s).
   // For <=5 prospects: try multiple patterns per person (up to 5 each).
-  // For >5 prospects: try only the top 1 pattern per person (quick verify).
-  const MAX_VERIFY_CALLS = 5;
+  // For >5 prospects: try only the top 2 patterns per person.
+  const MAX_VERIFY_CALLS = 15;
   let verifyCallsUsed = 0;
-  const patternsPerProspect = needsEmail.length <= 5 ? 5 : 1;
+  const patternsPerProspect = needsEmail.length <= 5 ? 5 : 2;
 
   for (const prospect of needsEmail) {
     attempted++;

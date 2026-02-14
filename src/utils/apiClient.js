@@ -2,9 +2,10 @@ const API_BASE = '/.netlify/functions';
 
 export async function findProspects(icpParams) {
   // Prospect search can be slow: Apollo search + enrichment (2 API calls/person)
-  // + Hunter gap-fill + pattern guessing. Allow 30s for up to 20 prospects.
+  // + Hunter gap-fill + pattern guessing. Allow 55s for up to 20 prospects.
+  // Netlify Pro functions timeout at 26s — give extra buffer for network latency.
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 55000);
 
   try {
     const res = await fetch(`${API_BASE}/find-prospects`, {
