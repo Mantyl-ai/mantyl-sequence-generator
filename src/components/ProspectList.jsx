@@ -1,5 +1,7 @@
 import { exportProspectsCSV } from '../utils/csvExport'
 
+const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
+
 // ── Inline SVG Icons ────────────────────────────────────────────────
 const IconUsers = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -31,13 +33,37 @@ const IconLinkedIn = () => (
   </svg>
 )
 
+const IconLock = () => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  </svg>
+)
+
 function getStatusLabel(status) {
   if (status === 'enriched') return 'Fully enriched'
   if (status === 'partial') return 'Partially enriched'
   return 'Minimal data'
 }
 
-export default function ProspectList({ prospects, sequences, selectedIndex, onSelectProspect, phonePollingActive }) {
+/**
+ * Generate a realistic-looking fake phone number from a prospect's name.
+ * Deterministic — same name always produces the same "number".
+ * Uses common US area codes so it looks authentic at a glance.
+ */
+function generateMaskedPhone(name) {
+  let hash = 0
+  for (let i = 0; i < (name || '').length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
+  }
+  const areaCodes = ['212', '415', '312', '617', '512', '720', '404', '206', '858', '949', '303', '971', '804', '916']
+  const area = areaCodes[Math.abs(hash) % areaCodes.length]
+  const mid = String(Math.abs((hash * 2654435761) | 0) % 900 + 100).slice(0, 3)
+  const end = String(Math.abs((hash * 40503) | 0) % 9000 + 1000).slice(0, 4)
+  return `(${area}) ${mid}-${end}`
+}
+
+export default function ProspectList({ prospects, sequences, selectedIndex, onSelectProspect }) {
   if (!prospects || prospects.length === 0) {
     return (
       <div className="panel">
@@ -75,7 +101,7 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
               <th>Company</th>
               <th>Work Email</th>
               <th style={{ width: 28, textAlign: 'center' }} title="Email validation status from Apollo">✓</th>
-              <th>Work Phone</th>
+              <th>Direct Dial</th>
               <th>LinkedIn</th>
             </tr>
           </thead>
@@ -121,22 +147,20 @@ export default function ProspectList({ prospects, sequences, selectedIndex, onSe
                   ) : null}
                 </td>
                 <td>
-                  {p.phone ? (
-                    <span style={{ fontSize: 12 }}>
-                      {p.phone}
-                      {p.phoneType && (
-                        <span className={`phone-type-badge ${p.phoneType}`}>
-                          {p.phoneType === 'work_direct' ? 'Direct' : p.phoneType === 'mobile' ? 'Mobile' : p.phoneType}
-                        </span>
-                      )}
+                  <a
+                    href={CALENDLY_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    className="phone-gated"
+                    title="Book a consultation to unlock direct dial numbers"
+                  >
+                    <span className="phone-gated-number">{generateMaskedPhone(p.name)}</span>
+                    <span className="phone-gated-overlay">
+                      <IconLock />
+                      <span>Unlock</span>
                     </span>
-                  ) : phonePollingActive ? (
-                    <span className="data-loading" style={{ fontSize: 11, color: 'var(--accent-blue)', opacity: 0.7 }}>
-                      <span className="phone-spinner" />Searching...
-                    </span>
-                  ) : (
-                    <span className="data-empty">—</span>
-                  )}
+                  </a>
                 </td>
                 <td>
                   {p.linkedinUrl ? (
