@@ -210,7 +210,7 @@ export async function handler(event) {
           console.warn('[Hunter] Gap-fill failed:', hunterErr.message);
         }
       } else {
-        console.warn(`[Hunter] Skipped — only ${Math.round(hunterTimeLeft / 1000)}s left (need 3s minimum)`);
+        console.warn(`[Hunter] Skipped — only ${Math.round(hunterTimeLeft / 1000)}s left (need >4s)`);
         debugInfo.hunterStats = { skipped: true, reason: 'time_budget_exhausted' };
       }
     }
