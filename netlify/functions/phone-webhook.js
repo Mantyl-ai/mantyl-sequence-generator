@@ -27,11 +27,13 @@ export async function handler(event) {
   if (event.httpMethod === 'GET') {
     if (!sessionId) return respond(400, { error: 'Missing sessionId' });
 
+    const blobAvailable = !!getStoreInstance();
     const data = await readStore(sessionId);
     return respond(200, {
       phones: data.phones || {},
       totalReceived: data.totalReceived || 0,
       status: data.totalReceived > 0 ? 'has_data' : 'waiting',
+      blobAvailable, // Debug: shows if Netlify Blobs is working
     });
   }
 
@@ -139,10 +141,10 @@ export async function handler(event) {
       existing.totalReceived = (existing.totalReceived || 0) + 1;
     }
 
-    await writeStore(sessionId, existing);
-    console.log(`[phone-webhook] Stored ${results.length} results for session ${sessionId}. Total received: ${existing.totalReceived}`);
+    const writeOk = await writeStore(sessionId, existing);
+    console.log(`[phone-webhook] Stored ${results.length} results for session ${sessionId}. Total received: ${existing.totalReceived}. Write OK: ${writeOk}`);
 
-    return respond(200, { ok: true, stored: results.length, phones: results.map(r => r.phone).filter(Boolean) });
+    return respond(200, { ok: true, stored: results.length, writeOk, phones: results.map(r => r.phone).filter(Boolean) });
 
   } catch (err) {
     console.error('[phone-webhook] Error:', err.message, err.stack);
@@ -151,9 +153,24 @@ export async function handler(event) {
 }
 
 // ── Netlify Blobs storage helpers ──
-async function readStore(sessionId) {
+// @netlify/blobs must be external_node_modules in netlify.toml (not bundled by esbuild)
+// so it can detect the Netlify runtime environment for authentication.
+function getStoreInstance() {
   try {
     const store = getStore(STORE_OPTIONS);
+    return store;
+  } catch (e) {
+    console.error(`[phone-webhook] getStore() FAILED: ${e.message}. Netlify Blobs may not be available. Check netlify.toml has external_node_modules = ["@netlify/blobs"]`);
+    console.error(`[phone-webhook] Environment check: NETLIFY=${process.env.NETLIFY}, DEPLOY_ID=${process.env.DEPLOY_ID}, CONTEXT=${process.env.CONTEXT}`);
+    return null;
+  }
+}
+
+async function readStore(sessionId) {
+  const store = getStoreInstance();
+  if (!store) return { phones: {}, totalReceived: 0 };
+
+  try {
     const data = await store.get(sessionId, { type: 'json' });
     if (data) {
       console.log(`[phone-webhook] Blob read OK for session ${sessionId}: ${Object.keys(data.phones || {}).length} phone entries`);
@@ -161,18 +178,25 @@ async function readStore(sessionId) {
     }
     console.log(`[phone-webhook] Blob read: no data yet for session ${sessionId}`);
   } catch (e) {
-    console.warn(`[phone-webhook] Blob read error for session ${sessionId}:`, e.message, e.stack?.split('\n')[1] || '');
+    console.warn(`[phone-webhook] Blob read error for session ${sessionId}:`, e.message);
   }
   return { phones: {}, totalReceived: 0 };
 }
 
 async function writeStore(sessionId, data) {
+  const store = getStoreInstance();
+  if (!store) {
+    console.error(`[phone-webhook] Cannot write — blob store unavailable for session ${sessionId}`);
+    return false;
+  }
+
   try {
-    const store = getStore(STORE_OPTIONS);
     await store.setJSON(sessionId, data);
     console.log(`[phone-webhook] Blob write OK for session ${sessionId}: ${Object.keys(data.phones || {}).length} phone entries`);
+    return true;
   } catch (e) {
-    console.error(`[phone-webhook] Blob write error for session ${sessionId}:`, e.message, e.stack?.split('\n')[1] || '');
+    console.error(`[phone-webhook] Blob write error for session ${sessionId}:`, e.message);
+    return false;
   }
 }
 

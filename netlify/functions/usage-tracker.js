@@ -57,6 +57,7 @@ export async function handler(event) {
     } catch (storeErr) {
       // If Netlify Blobs is not available, fail open (allow usage)
       console.error('[Usage] Cannot init blob store:', storeErr.message);
+      console.error(`[Usage] Environment: NETLIFY=${process.env.NETLIFY}, DEPLOY_ID=${process.env.DEPLOY_ID}, CONTEXT=${process.env.CONTEXT}`);
       const email = normalizeEmail(
         event.httpMethod === 'GET'
           ? event.queryStringParameters?.email
