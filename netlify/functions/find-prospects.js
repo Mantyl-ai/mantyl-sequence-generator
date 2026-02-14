@@ -60,6 +60,9 @@ export async function handler(event) {
       body: JSON.stringify({
         per_page: count,
         page: 1,
+        // Only return prospects Apollo has a direct phone number for.
+        // This ensures phone data is available during enrichment (Step B).
+        q_person_has_direct_phone: true,
         ...apolloFilters,
       }),
     });
