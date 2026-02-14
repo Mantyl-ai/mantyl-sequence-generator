@@ -100,10 +100,19 @@ export async function handler(event) {
     const sorted = [...withPhone, ...withoutPhone];
     rawPeople = sorted.slice(0, count);
 
-    console.log(`[Phone Priority] ${withPhone.length}/${apolloData.people?.length || 0} search results have has_direct_phone=true. Selected ${Math.min(withPhone.length, count)} with phone + ${Math.max(0, count - withPhone.length)} without.`);
+    const phonePriorityMsg = `[Phone Priority] ${withPhone.length}/${apolloData.people?.length || 0} search results have has_direct_phone=true. Selected ${Math.min(withPhone.length, count)} with phone + ${Math.max(0, count - withPhone.length)} without.`;
+    console.log(phonePriorityMsg);
 
     // Log first person — dump ALL keys so we can see exactly what Apollo returns
-    let debugInfo = {};
+    let debugInfo = {
+      phonePriority: {
+        totalSearchResults: apolloData.people?.length || 0,
+        withDirectPhone: withPhone.length,
+        selectedWithPhone: Math.min(withPhone.length, count),
+        selectedWithoutPhone: Math.max(0, count - withPhone.length),
+        overFetchRequested: overFetchCount,
+      },
+    };
     if (rawPeople.length > 0) {
       const sample = rawPeople[0];
       const allKeys = Object.keys(sample);
@@ -130,16 +139,36 @@ export async function handler(event) {
 
     // Add enrichment stats to debug
     const enrichedCount = prospects.filter(p => p.email || p.linkedinUrl).length;
+    const prospectsWithPhone = prospects.filter(p => p.phone).length;
+
+    // Phone diagnostic: if 0 phones found, provide clear root cause diagnosis
+    let phoneDiagnosis = '';
+    if (prospectsWithPhone === 0) {
+      const firstDebug = prospects[0]?._enrichDebug;
+      const stepCResult = firstDebug?.steps?.find(s => s.step === 'C_phone_reveal');
+      if (stepCResult?.status === 403 || stepCResult?.status === 401) {
+        phoneDiagnosis = 'PHONE_CREDITS_MISSING: Your Apollo API key does not have phone reveal access. Upgrade your Apollo plan to include phone credits, or purchase phone reveal credits at app.apollo.io.';
+      } else if (stepCResult?.status === 'ok' && !stepCResult?.phone) {
+        phoneDiagnosis = 'PHONE_NOT_AVAILABLE: Apollo phone_numbers/match returned successfully but no phones. Your plan may lack phone credits, or these contacts do not have phone numbers in Apollo database.';
+      } else if (stepCResult?.error) {
+        phoneDiagnosis = `PHONE_ENDPOINT_ERROR: ${stepCResult.error}`;
+      } else {
+        phoneDiagnosis = 'PHONE_NOT_RETURNED: Apollo enrichment returned no phone fields. This usually means the API key lacks phone reveal credits. Check your Apollo plan at app.apollo.io → Settings → Plans & Billing.';
+      }
+      console.warn(`[Phone Diagnosis] ${phoneDiagnosis}`);
+    }
+
     debugInfo.enrichmentStats = {
       total: prospects.length,
       withRealEmail: prospects.filter(p => p.email && !p.email.includes('not_unlocked')).length,
       withVerifiedEmail: prospects.filter(p => p.emailStatus === 'verified').length,
       withGuessedEmail: prospects.filter(p => p.emailStatus === 'guessed').length,
       withLinkedin: prospects.filter(p => p.linkedinUrl).length,
-      withPhone: prospects.filter(p => p.phone).length,
+      withPhone: prospectsWithPhone,
       enrichedCount,
       waterfallEnabled: true,
-      // Show first 3 prospects' full enrichment debug (Step A + Step B results)
+      phoneDiagnosis: phoneDiagnosis || 'OK',
+      // Show first 3 prospects' full enrichment debug (Step A + Step B + Step C results)
       sampleProspects: prospects.slice(0, 3).map(p => ({
         name: p.name,
         email: p.email || '(empty)',
@@ -373,14 +402,63 @@ async function enrichOnePerson(person, apiKey, phoneWebhookUrl) {
           const email = isRealEmail(ep.email) ? ep.email : '';
           const stepBPhone = extractPhone(ep);
           // Use Step B phone if available, otherwise fall back to Step A phone
-          const phoneData = stepBPhone.number ? stepBPhone : stepAPhone;
+          let phoneData = stepBPhone.number ? stepBPhone : stepAPhone;
           const linkedin = ep.linkedin_url || linkedinUrl || '';
           const emailStatus = ep.email_status || '';
+          const resolvedPersonId = ep.id || personId;
 
           console.log(`Step B for ${firstName}: email="${email}", raw_email="${ep.email || ''}", emailStatus="${emailStatus}", linkedin="${linkedin}", stepBPhone="${stepBPhone.number}" (${stepBPhone.type}), stepAPhone="${stepAPhone.number}" (${stepAPhone.type}), finalPhone="${phoneData.number}" (${phoneData.type}), waterfall=${JSON.stringify(waterfallStatus)}`);
 
+          // ── Step C: Dedicated phone reveal if Steps A/B found no phone ────
+          // Apollo has a separate phone_numbers/match endpoint that may work
+          // even when reveal_phone_number in /people/match doesn't.
+          if (!phoneData.number && resolvedPersonId) {
+            try {
+              const phoneRevealResponse = await fetch('https://api.apollo.io/api/v1/phone_numbers/match', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': apiKey,
+                },
+                body: JSON.stringify({
+                  person_id: resolvedPersonId,
+                  reveal_phone_number: true,
+                }),
+              });
+
+              if (phoneRevealResponse.ok) {
+                const phoneRevealData = await phoneRevealResponse.json();
+                const revealPerson = phoneRevealData.person || phoneRevealData;
+                const stepCPhone = extractPhone(revealPerson);
+
+                enrichDebug.steps.push({
+                  step: 'C_phone_reveal',
+                  status: 'ok',
+                  phone: stepCPhone.number || '(null)',
+                  phoneType: stepCPhone.type || '(null)',
+                  responseKeys: Object.keys(phoneRevealData).slice(0, 10),
+                  personPhoneNumbers: revealPerson.phone_numbers?.length || 0,
+                });
+
+                if (stepCPhone.number) {
+                  phoneData = stepCPhone;
+                  console.log(`Step C for ${firstName}: FOUND phone "${stepCPhone.number}" (${stepCPhone.type})`);
+                } else {
+                  console.log(`Step C for ${firstName}: phone_numbers/match returned no phone. Keys: ${Object.keys(revealPerson).slice(0, 10).join(',')}`);
+                }
+              } else {
+                const errText = await phoneRevealResponse.text().catch(() => '');
+                enrichDebug.steps.push({ step: 'C_phone_reveal', status: phoneRevealResponse.status, error: errText.slice(0, 200) });
+                console.warn(`Step C failed for ${firstName}: ${phoneRevealResponse.status} ${errText.slice(0, 150)}`);
+              }
+            } catch (phoneErr) {
+              enrichDebug.steps.push({ step: 'C_phone_reveal', error: phoneErr.message });
+              console.warn(`Step C error for ${firstName}:`, phoneErr.message);
+            }
+          }
+
           return {
-            apolloId: ep.id || personId,
+            apolloId: resolvedPersonId,
             name: ep.name || fullName || `${ep.first_name || firstName} ${ep.last_name || lastName}`.trim() || 'Unknown',
             title: ep.title || person.title || '',
             company: (ep.organization || {}).name || orgName || '',
