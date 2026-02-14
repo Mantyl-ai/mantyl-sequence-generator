@@ -33,11 +33,11 @@ export async function handler(event) {
       companySegments, companySegment,
       companySizes, companySize,
       geographies, geography,
-      jobTitles, techStack, otherCriteria, prospectCount = 10
+      jobTitles, techStack, otherCriteria, prospectCount = 20
     } = body;
 
-    // Cap at 10 prospects to manage Apollo credit usage
-    const count = Math.min(parseInt(prospectCount) || 10, 10);
+    // Cap at 20 prospects per run
+    const count = Math.min(parseInt(prospectCount) || 20, 20);
 
     // ── Step 1: Search for people via Apollo ─────────────────────────
     // Over-fetch 3x the requested count so we can prioritize prospects

@@ -2476,57 +2476,42 @@ body {
 }
 
 /* ===== Phone Spinner ===== */
-/* ===== Gated Phone Column ===== */
-.phone-gated {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  font-size: 12px;
-  color: var(--navy-lighter);
-  text-decoration: none;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  padding: 2px 6px;
-  transition: all 0.2s ease;
-  overflow: hidden;
+.phone-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(107, 138, 219, 0.3);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: phone-spin 0.8s linear infinite;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+@keyframes phone-spin {
+  to { transform: rotate(360deg); }
 }
 
-.phone-gated-number {
-  filter: blur(4.5px);
-  user-select: none;
-  pointer-events: none;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  transition: filter 0.2s ease;
-}
-
-.phone-gated-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  font-size: 10px;
+/* ===== Phone Type Badge ===== */
+.phone-type-badge {
+  display: inline-block;
+  font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
+  vertical-align: middle;
   text-transform: uppercase;
-  color: var(--accent-lavender);
-  opacity: 0;
-  transition: opacity 0.2s ease;
+  letter-spacing: 0.3px;
 }
-
-.phone-gated:hover {
-  background: linear-gradient(135deg, rgba(107, 138, 219, 0.06) 0%, rgba(155, 127, 199, 0.08) 50%, rgba(212, 132, 154, 0.06) 100%);
+.phone-type-badge.work_direct {
+  background: rgba(107, 138, 219, 0.12);
+  color: #6B8ADB;
+  border: 1px solid rgba(107, 138, 219, 0.25);
 }
-
-.phone-gated:hover .phone-gated-overlay {
-  opacity: 1;
-}
-
-.phone-gated:hover .phone-gated-number {
-  filter: blur(6px);
+.phone-type-badge.mobile {
+  background: rgba(155, 127, 199, 0.12);
+  color: #9B7FC7;
+  border: 1px solid rgba(155, 127, 199, 0.25);
 }
 
 /* ===== Data Empty ===== */
