@@ -4,7 +4,7 @@
 
 Built by [mantyl.ai](https://mantyl.ai) — AI-Powered GTM Automation.
 
-**Live:** [tools.mantyl.ai](https://tools.mantyl.ai)
+**Live:** [sequencer.mantyl.ai](https://sequencer.mantyl.ai)
 
 ---
 
