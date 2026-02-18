@@ -525,7 +525,7 @@ export default function ICPForm({ onSubmit, isLoading }) {
           </div>
           <div className="form-group">
             <label>Calendly / Booking Link <span className="optional-tag">Optional</span></label>
-            <input type="url" value={form.senderCalendly} onChange={e => update('senderCalendly', e.target.value)} placeholder="e.g. calendly.com/sarah-chen/30min" />
+            <input type="url" value={form.senderCalendly} onChange={e => update('senderCalendly', e.target.value)} placeholder="e.g. mantyl.ai/book.html" />
           </div>
         </div>
       </div>

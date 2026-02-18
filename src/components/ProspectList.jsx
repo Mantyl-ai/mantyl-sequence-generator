@@ -1,6 +1,6 @@
 import { exportProspectsCSV } from '../utils/csvExport'
 
-const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
+const CALENDLY_URL = 'https://mantyl.ai/book.html'
 
 // ── Inline SVG Icons ────────────────────────────────────────────────
 const IconUsers = () => (

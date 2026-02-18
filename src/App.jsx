@@ -5,7 +5,7 @@ import SequenceCopy from './components/SequenceCopy'
 import MantylLoader from './components/MantylLoader'
 import { findProspects, generateSequence, checkUsage, incrementUsage } from './utils/apiClient'
 
-const CALENDLY_URL = 'https://calendly.com/jose-mantyl/free-consultation-ai-automation'
+const CALENDLY_URL = 'https://mantyl.ai/book.html'
 
 export default function App() {
   const [step, setStep] = useState('form')
