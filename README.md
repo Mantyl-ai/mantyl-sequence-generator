@@ -129,7 +129,7 @@ sequence-generator/
 ### Installation
 
 ```bash
-git clone https://github.com/your-org/mantyl-sequence-generator.git
+git clone https://github.com/jbalbu01/mantyl-sequence-generator.git
 cd mantyl-sequence-generator
 npm install
 cp .env.example .env
