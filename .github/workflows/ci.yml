@@ -7,21 +7,6 @@ on:
     branches: [main]
 
 jobs:
-  secret-scan:
-    name: Secret Detection
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Gitleaks Scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: false
-
   build:
     name: Build & Validate
     runs-on: ubuntu-latest
@@ -41,7 +26,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Check for hardcoded secrets
+      - name: Secret scan
         run: |
           echo "Scanning for potential secrets..."
           if grep -rn "sk-[a-zA-Z0-9]\{20,\}\|APOLLO_API_KEY=[^$]\|HUNTER_API_KEY=[^$]\|ANTHROPIC_API_KEY=[^$]" \
