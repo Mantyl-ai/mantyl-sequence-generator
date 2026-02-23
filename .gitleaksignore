@@ -1,0 +1,3 @@
+# Ignore placeholder keys in .env.example files
+# These are not real secrets — they're template values for developers
+5196f02:netlify/functions/find-prospects.js:generic-api-key
