@@ -1,10 +1,16 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Mantyl-ai/.github/main/profile/banner.png" alt="Mantyl" width="100%" />
+</p>
+
 # Mantyl Sequence Generator
+
+[![Live](https://img.shields.io/badge/Live-sequencer.mantyl.ai-6C63FF?style=flat-square)](https://sequencer.mantyl.ai)
+[![License](https://img.shields.io/badge/License-Proprietary-red?style=flat-square)](./LICENSE)
+[![Netlify](https://img.shields.io/badge/Deployed_on-Netlify-00C7B7?style=flat-square&logo=netlify&logoColor=white)](https://sequencer.mantyl.ai)
 
 **AI-powered outbound prospecting engine** that discovers, enriches, and activates sales prospects — from ICP definition to ready-to-send multi-channel sequences in under 60 seconds.
 
-Built by [mantyl.ai](https://mantyl.ai) — AI-Powered GTM Automation.
-
-**Live:** [sequencer.mantyl.ai](https://sequencer.mantyl.ai)
+Built by [Mantyl.ai](https://mantyl.ai) — AI-Native Automation for GTM Teams.
 
 ---
 
@@ -129,7 +135,7 @@ sequence-generator/
 ### Installation
 
 ```bash
-git clone https://github.com/jbalbu01/mantyl-sequence-generator.git
+git clone https://github.com/Mantyl-ai/mantyl-sequence-generator.git
 cd mantyl-sequence-generator
 npm install
 cp .env.example .env
@@ -244,6 +250,10 @@ Hard cap of 20 prospects per run for cost control. The adaptive rate limiter ens
 
 ## License
 
-Proprietary — [mantyl.ai](https://mantyl.ai). All rights reserved.
+Proprietary — [mantyl.ai](https://mantyl.ai). All rights reserved. See [LICENSE](./LICENSE) for full terms.
 
-See [LICENSE](./LICENSE) for full terms.
+---
+
+<p align="center">
+  <sub>Built by <a href="https://mantyl.ai">Mantyl.ai</a> — AI-Native Automation for GTM Teams</sub>
+</p>
